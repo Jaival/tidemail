@@ -4,7 +4,7 @@ use tidemail_db::{read, types::*};
 
 use crate::AppState;
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn list_threads(
     state: State<'_, AppState>,
@@ -16,7 +16,7 @@ pub fn list_threads(
     read::list_threads(&db, &view, cursor, limit).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn get_thread(
     state: State<'_, AppState>,
@@ -26,21 +26,21 @@ pub fn get_thread(
     read::get_thread(&db, thread_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn get_body(state: State<'_, AppState>, message_id: i64) -> Result<Option<Body>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     read::get_body(&db, message_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn list_accounts(state: State<'_, AppState>) -> Result<Vec<Account>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     read::list_accounts(&db).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn list_labels(
     state: State<'_, AppState>,
@@ -50,25 +50,19 @@ pub fn list_labels(
     read::list_labels(&db, account_id).map_err(|e| e.to_string())
 }
 
+/// Called by the UI after its first populated frame. Shows the window and
+/// returns the cold-launch time in ms (process start to this call).
 #[tauri::command]
 #[specta]
-pub fn report_first_paint(
-    window: tauri::WebviewWindow,
-    started_at_ms: Option<i64>,
-) -> Result<i64, String> {
-    let elapsed = started_at_ms.map_or(0, |start| (now_ms() - start).max(0));
+pub fn report_first_paint(window: tauri::WebviewWindow) -> Result<u32, String> {
+    let elapsed = crate::ms_since_start().round() as u32;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
+    eprintln!("tidemail: cold launch {elapsed} ms");
     Ok(elapsed)
 }
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
-
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn apply_action(
     state: State<'_, AppState>,
@@ -80,7 +74,7 @@ pub fn apply_action(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn undo_action(state: State<'_, AppState>, action_ids: Vec<i64>) -> Result<(), String> {
     state
@@ -89,7 +83,7 @@ pub fn undo_action(state: State<'_, AppState>, action_ids: Vec<i64>) -> Result<(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn retry_failed(state: State<'_, AppState>, action_id: i64) -> Result<(), String> {
     state
@@ -98,7 +92,7 @@ pub fn retry_failed(state: State<'_, AppState>, action_id: i64) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn dismiss_failed(state: State<'_, AppState>, action_id: i64) -> Result<(), String> {
     state
@@ -107,7 +101,7 @@ pub fn dismiss_failed(state: State<'_, AppState>, action_id: i64) -> Result<(), 
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn search(
     state: State<'_, AppState>,
@@ -118,7 +112,7 @@ pub fn search(
     tidemail_search::search(&db, &query, limit).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn get_sync_status(state: State<'_, AppState>) -> SyncStatus {
     state.engine.status()
@@ -140,7 +134,7 @@ pub async fn remove_account(state: State<'_, AppState>, account_id: i64) -> Resu
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta]
 pub fn prefetch_bodies(state: State<'_, AppState>, message_ids: Vec<i64>) {
     state.engine.prefetch_bodies(&message_ids);

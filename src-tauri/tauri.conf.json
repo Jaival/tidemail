@@ -5,21 +5,32 @@
   "identifier": "com.jaival.tidemail",
   "build": {
     "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "Tidemail",
-      "width": 1280,
-      "height": 820,
-      "minWidth": 900,
-      "minHeight": 600,
-      "visible": false
-    }],
-    "security": { "csp": "default-src 'self'; img-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" }
+    "windows": [
+      {
+        "label": "main",
+        "title": "Tidemail",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "visible": false,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://tidemail-cid.localhost https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
   },
-  "bundle": { "active": true, "targets": ["nsis", "msi"] }
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ]
+  }
 }

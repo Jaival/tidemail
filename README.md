@@ -10,7 +10,7 @@ Tidemail is a local-first Gmail client for Windows 11. Mailbox reads use one loc
 - Build with `bun run tauri build`.
 - The app uses `%LOCALAPPDATA%\Tidemail\mail.db` by default. Pass `--db <path>` to the app or benchmark to select another database.
 - Generate the deterministic benchmark mailbox with `cargo run -p tidemail-bench --bin fakegen -- --db bench.db`.
-- Run the Rust database benchmark with `bun run bench -- --db bench.db`.
+- Run the benchmarks with `bun run bench -- --db bench.db`. It runs the Rust bench, builds the release app (`tauri build --no-bundle`) and runs the E2E bench (`e2e/bench.ts`, Playwright over WebView2 CDP, under Node). Close Tidemail first: single-instance would hand the launch to the running app. Add `--skip-e2e` for the Rust part only.
 
 ## Local data and Windows Defender
 

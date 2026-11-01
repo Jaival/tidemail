@@ -1,10 +1,11 @@
-:root { font-family: 'DM Sans', 'Segoe UI', sans-serif; color: #e8eaf1; background: #101116; font-synthesis: none; text-rendering: optimizeLegibility; }
+@import "tailwindcss";
+:root { --bg:#101116; --panel:#16181f; --line:#252832; --muted:#898d9b; --text:#e8eaf1; --soft:#b9bdc9; font-family: 'DM Sans', 'Segoe UI', sans-serif; color: var(--text); background: var(--bg); font-synthesis: none; text-rendering: optimizeLegibility; }
+:root[data-theme="light"] { --bg:#f4f5f8; --panel:#fff; --line:#e7e8ec; --muted:#858996; --text:#242630; --soft:#5f626d; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 900px; min-height: 100vh; }
 button, input { font: inherit; }
 button { color: inherit; }
-main { --bg:#101116; --panel:#16181f; --line:#252832; --muted:#898d9b; --text:#e8eaf1; --soft:#b9bdc9; display:flex; min-height:100vh; color:var(--text); background:var(--bg); }
-main[data-theme="light"] { --bg:#f4f5f8; --panel:#fff; --line:#e7e8ec; --muted:#858996; --text:#242630; --soft:#5f626d; }
+main { display:flex; min-height:100vh; color:var(--text); background:var(--bg); }
 .sidebar { width:242px; border-right:1px solid var(--line); display:flex; flex-direction:column; padding:27px 16px 18px; background:var(--panel); }
 .brand { display:flex; align-items:center; gap:10px; padding:0 10px; font:800 19px Manrope,sans-serif; letter-spacing:-.6px; margin-bottom:34px; }
 .brand-mark { display:grid; place-items:center; height:28px; width:28px; border-radius:9px; color:white; background:linear-gradient(145deg,#8d76ff,#5c4ed2); font:800 19px Manrope; }
