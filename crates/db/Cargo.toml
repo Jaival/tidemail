@@ -1,0 +1,10 @@
+[package]
+name = "tidemail-db"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+specta.workspace = true

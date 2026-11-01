@@ -1,0 +1,12 @@
+[package]
+name = "tidemail-sync"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tidemail-db.workspace = true
+tidemail-gmail.workspace = true
+tidemail-render.workspace = true
+tidemail-search.workspace = true
+thiserror.workspace = true

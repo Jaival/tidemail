@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tidemail",
+  "version": "0.1.0",
+  "identifier": "com.jaival.tidemail",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "Tidemail",
+      "width": 1280,
+      "height": 820,
+      "minWidth": 900,
+      "minHeight": 600,
+      "visible": false
+    }],
+    "security": { "csp": "default-src 'self'; img-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": { "active": true, "targets": ["nsis", "msi"] }
+}

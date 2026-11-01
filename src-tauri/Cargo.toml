@@ -1,0 +1,30 @@
+[package]
+name = "tidemail"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "tidemail_app"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "tidemail"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+serde.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+tauri-specta.workspace = true
+tidemail-db.workspace = true
+tidemail-render.workspace = true
+tidemail-search.workspace = true
+tidemail-sync.workspace = true
+tidemail-gmail.workspace = true

@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+tidemail-db = { path = "crates/db" }
+tidemail-gmail = { path = "crates/gmail" }
+tidemail-sync = { path = "crates/sync" }
+tidemail-search = { path = "crates/search" }
+tidemail-render = { path = "crates/render" }
+
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+ammonia = "4"
+
+# Pinned triple, see docs/research/tauri-specta-and-tray.md. Upgrade only on purpose.
+specta = { version = "=2.0.0-rc.26", features = ["derive"] }
+specta-typescript = "=0.0.13"
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

@@ -1,0 +1,8 @@
+/target/
+/node_modules/
+/dist/
+/bench.db
+/bench.db-shm
+/bench.db-wal
+/src/bindings.ts.tmp
+/src-tauri/gen/

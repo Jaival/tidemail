@@ -1,0 +1,9 @@
+[package]
+name = "tidemail-search"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tidemail-db.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,31 @@
+{
+  "name": "tidemail",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src eslint.config.js vite.config.ts",
+    "tauri": "tauri",
+    "bindings": "cargo run -p tidemail --bin export_bindings",
+    "bench": "bun run scripts/bench.ts"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.1",
+    "@tanstack/react-virtual": "^3.13.12",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.4",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "eslint": "^9.38.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^7.1.12"
+  }
+}

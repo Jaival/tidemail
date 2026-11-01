@@ -1,0 +1,9 @@
+[package]
+name = "tidemail-render"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tidemail-db.workspace = true
+ammonia.workspace = true
