@@ -98,9 +98,9 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
 - Sanitize every HTML body with `ammonia` **at ingest** in Rust and store only the sanitized HTML (`bodies.html_sanitized`) with a `sanitizer_version`. A background job re-sanitizes old rows after a sanitizer change (raw HTML is refetched from Gmail). Nothing is sanitized at read time.
 - Remove scripts, forms, event handlers, `javascript:` URLs. **Allow `<style>` elements and `style` attributes** (newsletters need them); the CSP is the safety net for CSS.
 - Render inside a sandboxed `<iframe srcdoc>` with **no `allow-scripts`**, sandbox `allow-popups allow-popups-to-escape-sandbox` only.
-- CSP (meta tag in srcdoc): `default-src 'none'; style-src 'unsafe-inline'; img-src data: tidemail-cid:; font-src data:`. When the sender is allowed to load images, `img-src` adds `https:`. Show a "Load images" button per sender; remember the choice in `sender_prefs`.
-- Inline `cid:` images: ammonia rewrites `cid:` URLs to a custom URI scheme `tidemail-cid://<message>/<cid>`, served by Rust from the local attachment cache. They show even while remote images are blocked.
-- Links: ammonia sets `target="_blank" rel="noopener noreferrer"` on every link. Rust intercepts new-window and navigation requests from the webview, cancels them, and opens the URL in the default browser via `tauri-plugin-opener`. Never navigate inside the app. (Confirm the exact Tauri 2 hook in Phase 0.)
+- CSP (meta tag in srcdoc): `default-src 'none'; style-src 'unsafe-inline'; img-src data: http://tidemail-cid.localhost; font-src data:`. The srcdoc iframe also inherits the app CSP (`tauri.conf.json`), so that CSP must allow the same sources. When the sender is allowed to load images, `img-src` adds `https:`. Show a "Load images" button per sender; remember the choice in `sender_prefs`.
+- Inline `cid:` images: ammonia rewrites `cid:` URLs to the custom URI scheme `tidemail-cid`, served by Rust from `inline_blobs`. On Windows, WebView2 exposes it as `http://tidemail-cid.localhost/<message>/<percent-encoded cid>` (`tidemail_render::CID_ORIGIN`); the handler is registered in the app crate. They show even while remote images are blocked.
+- Links: ammonia sets `target="_blank" rel="noopener noreferrer"` on every link. Rust intercepts new-window and navigation requests from the webview, cancels them, and opens the URL in the default browser via `tauri-plugin-opener`. Never navigate inside the app. Hooks (confirmed in Phase 0, Tauri 2.12): `WebviewWindowBuilder::on_navigation` (return `false` for non-app URLs) and `on_new_window` (return `NewWindowResponse::Deny`). The main window is therefore built in `setup` (`create: false` in config). Only `http`, `https` and `mailto` URLs are opened.
 - Keep one iframe warm and swap its content; do not create a new one per message.
 - Attachments: downloaded on demand to `%LOCALAPPDATA%\Tidemail\attachments\<account>\<message>\<name>`; no eviction for now. Write a `Zone.Identifier` stream (Mark-of-the-Web) on every saved file so Windows/SmartScreen/Office warn on risky files. Open via `tauri-plugin-opener`.
 
@@ -118,7 +118,7 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
 1. **Google sign-in** (`crates/gmail`): OAuth PKCE, keyring storage, config.toml, API client, batch helper.
 2. **Sync engine** (`crates/sync`): backfill, history polling, full id diff, action queue (undo delay, reconciliation, failure), prefetch.
 3. **UI shell** (`src/features/shell`, list, reader layout): sidebar, virtualized list, account dots, Ctrl+K palette, all keyboard shortcuts, undo toasts, status area. Gives search a slot and the `/` shortcut.
-4. **Mail renderer** (`crates/render`, `src/features/reader`): sanitizing, CSP, sandboxed iframe, warm iframe reuse, image blocking + sender prefs, `tidemail-cid://` scheme, link interception, attachments + Mark-of-the-Web.
+4. **Mail renderer** (`crates/render`, `src/features/reader`): sanitizing, CSP, sandboxed iframe, warm iframe reuse, image blocking + sender prefs, `cid:` rewrite to `CID_ORIGIN`, link attributes, attachments + Mark-of-the-Web.
 5. **Search** (`crates/search`, `src/features/search`): FTS5 maintenance + queries, operator parser, input + results list, per-keystroke results, highlight matches.
 
 Rules for Phase 1:

@@ -44,6 +44,14 @@ fn configure(conn: &Connection) -> Result<()> {
 
 fn migrate(conn: &mut Connection) -> Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if current as usize > SCHEMA_VERSION {
+        return Err(Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISMATCH),
+            Some(format!(
+                "database schema v{current} is newer than this build (v{SCHEMA_VERSION})"
+            )),
+        ));
+    }
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
@@ -59,4 +67,14 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn refuses_newer_schema() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 99).unwrap();
+        assert!(super::migrate(&mut conn).is_err());
+    }
 }

@@ -10,7 +10,11 @@ export const commands = {
 	getBody: (messageId: number) => typedError<Body_Serialize | null, string>(__TAURI_INVOKE("get_body", { messageId })),
 	listAccounts: () => typedError<Account_Serialize[], string>(__TAURI_INVOKE("list_accounts")),
 	listLabels: (accountId: number | null) => typedError<Label_Serialize[], string>(__TAURI_INVOKE("list_labels", { accountId })),
-	reportFirstPaint: (startedAtMs: number | null) => typedError<number, string>(__TAURI_INVOKE("report_first_paint", { startedAtMs })),
+	/**
+	 *  Called by the UI after its first populated frame. Shows the window and
+	 *  returns the cold-launch time in ms (process start to this call).
+	 */
+	reportFirstPaint: () => typedError<number, string>(__TAURI_INVOKE("report_first_paint")),
 	applyAction: (request: ActionRequest) => typedError<ActionTicket, string>(__TAURI_INVOKE("apply_action", { request })),
 	undoAction: (actionIds: number[]) => typedError<null, string>(__TAURI_INVOKE("undo_action", { actionIds })),
 	retryFailed: (actionId: number) => typedError<null, string>(__TAURI_INVOKE("retry_failed", { actionId })),

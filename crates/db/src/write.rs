@@ -82,6 +82,8 @@ pub struct NewMessage<'a> {
     pub body_state: BodyState,
 }
 
+/// Stores `from_email` lowercased, so `sender_prefs` lookups match.
+/// Pass the lowercased address to `tidemail_search::fts` as well.
 pub fn insert_message(conn: &Connection, m: &NewMessage) -> Result<i64> {
     conn.prepare_cached(
         "INSERT INTO messages (account_id, gmail_id, thread_id, from_name, from_email, to_text, \
@@ -93,7 +95,7 @@ pub fn insert_message(conn: &Connection, m: &NewMessage) -> Result<i64> {
         m.gmail_id,
         m.thread_id,
         m.from_name,
-        m.from_email,
+        m.from_email.to_ascii_lowercase(),
         m.to_text,
         m.subject,
         m.snippet,
@@ -331,6 +333,19 @@ mod tests {
         assert_eq!(row.snippet, "snip 1");
         assert_eq!(row.participants, "Ann, Bob");
         assert!(page.next.is_none());
+        // A full last page has no next cursor (no extra empty fetch).
+        let exact = read::list_threads(
+            &conn,
+            &View {
+                label_key: "INBOX".into(),
+                account_id: None,
+            },
+            None,
+            1,
+        )
+        .unwrap();
+        assert_eq!(exact.items.len(), 1);
+        assert!(exact.next.is_none());
 
         let per_acct = read::list_threads(
             &conn,

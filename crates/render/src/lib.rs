@@ -13,8 +13,13 @@ use tidemail_db::rusqlite::{params, Connection, OptionalExtension};
 /// Bump on every sanitizer change; a background job re-sanitizes old rows.
 pub const SANITIZER_VERSION: u32 = 1;
 
-/// URI scheme for inline images: `tidemail-cid://<message_id>/<content_id>`.
+/// Custom URI scheme for inline images, registered by the app crate.
 pub const CID_SCHEME: &str = "tidemail-cid";
+
+/// Origin that WebView2 uses for `CID_SCHEME`. On Windows, Tauri serves a
+/// custom scheme as `http://<scheme>.localhost/`, not as `<scheme>://`.
+/// `cid:` URLs are rewritten to `{CID_ORIGIN}/<message_id>/<percent-encoded content_id>`.
+pub const CID_ORIGIN: &str = "http://tidemail-cid.localhost";
 
 /// Sanitize one HTML body for storage in `bodies.html_sanitized`.
 /// `message_id` is used to rewrite `cid:` URLs.

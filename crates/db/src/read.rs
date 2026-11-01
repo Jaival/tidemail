@@ -82,19 +82,23 @@ pub fn list_threads(
 ) -> Result<ThreadPage> {
     let limit = limit.clamp(1, MAX_PAGE);
     let (date, id) = cursor.map_or((i64::MAX, i64::MAX), |c| (c.last_date, c.thread_id));
-    let items: Vec<ThreadRow> = match view.account_id {
+    // Fetch one extra row to learn whether another page exists.
+    let fetch = limit + 1;
+    let mut items: Vec<ThreadRow> = match view.account_id {
         None => {
             let mut st = conn.prepare_cached(SQL_LIST_UNIFIED)?;
-            let rows = st.query_map(params![view.label_key, date, id, limit], thread_row)?;
+            let rows = st.query_map(params![view.label_key, date, id, fetch], thread_row)?;
             rows.collect::<Result<_>>()?
         }
         Some(acct) => {
             let mut st = conn.prepare_cached(SQL_LIST_ACCOUNT)?;
-            let rows = st.query_map(params![view.label_key, date, id, limit, acct], thread_row)?;
+            let rows = st.query_map(params![view.label_key, date, id, fetch, acct], thread_row)?;
             rows.collect::<Result<_>>()?
         }
     };
-    let next = (items.len() as u32 == limit).then(|| {
+    let has_more = items.len() as u32 > limit;
+    items.truncate(limit as usize);
+    let next = has_more.then(|| {
         let last = items.last().expect("non-empty page");
         Cursor {
             last_date: last.last_date,
