@@ -38,3 +38,13 @@ Cold launch breakdown: process start to page navigation start is about 390–460
 - Google OAuth client setup is required before account sync can be exercised.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
 - Phase 4 projects/classification remain intentionally undesigned.
+
+## Phase 1 (in progress)
+
+- Integration branch: `phase1`. Each agent works on `phase1-<area>` in its own worktree, branched from `phase1`.
+- Contracts added on `phase1` before the agents start:
+  - `set_sender_images(email, load_images)` IPC command.
+  - `src/features/reader/Reader.tsx`: `<Reader threadId={number | null} />`, rendered by the shell.
+  - `src/features/search/SearchPanel.tsx`: `<SearchPanel query onOpenThread />`, rendered by the shell.
+- Schema or IPC requests: each agent writes them to `docs/handoff/<area>.md` (own file, no merge conflicts). The main thread applies them.
+- Merge order: renderer, search, UI shell, sign-in, sync.

@@ -153,3 +153,15 @@ pub async fn download_attachment(
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| e.to_string())
 }
+
+/// "Load images" choice for a sender, stored in `sender_prefs`.
+#[tauri::command(async)]
+#[specta]
+pub fn set_sender_images(
+    state: State<'_, AppState>,
+    email: String,
+    load_images: bool,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    tidemail_db::write::set_sender_images(&db, &email, load_images).map_err(|e| e.to_string())
+}

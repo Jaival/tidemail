@@ -25,6 +25,8 @@ export const commands = {
 	removeAccount: (accountId: number) => typedError<null, string>(__TAURI_INVOKE("remove_account", { accountId })),
 	prefetchBodies: (messageIds: number[]) => __TAURI_INVOKE<void>("prefetch_bodies", { messageIds }),
 	downloadAttachment: (attachmentId: number) => typedError<string, string>(__TAURI_INVOKE("download_attachment", { attachmentId })),
+	/**  "Load images" choice for a sender, stored in `sender_prefs`. */
+	setSenderImages: (email: string, loadImages: boolean) => typedError<null, string>(__TAURI_INVOKE("set_sender_images", { email, loadImages })),
 };
 
 /** Events */
