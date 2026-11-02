@@ -165,3 +165,27 @@ pub fn set_sender_images(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     tidemail_db::write::set_sender_images(&db, &email, load_images).map_err(|e| e.to_string())
 }
+
+/// Open a downloaded attachment in its default app.
+#[tauri::command(async)]
+#[specta]
+pub fn open_attachment(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    attachment_id: i64,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path: Option<String> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.query_row(
+            "SELECT local_path FROM attachments WHERE id = ?1",
+            [attachment_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?
+    };
+    let path = path.ok_or("attachment is not downloaded")?;
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}

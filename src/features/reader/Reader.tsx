@@ -192,12 +192,18 @@ export function Reader({ threadId }: { threadId: number | null }) {
 
 function AttachmentList({ files }: { files: Attachment_Serialize[] }) {
   const [state, setState] = useState<Record<number, string>>({});
-  const download = async (a: Attachment_Serialize) => {
+  // Download on first click, then open in the default app.
+  const open = async (a: Attachment_Serialize) => {
     setState((s) => ({ ...s, [a.id]: "Downloading…" }));
-    const res = await commands.downloadAttachment(a.id);
+    const saved = await commands.downloadAttachment(a.id);
+    if (saved.status === "error") {
+      setState((s) => ({ ...s, [a.id]: `Failed: ${saved.error}` }));
+      return;
+    }
+    const opened = await commands.openAttachment(a.id);
     setState((s) => ({
       ...s,
-      [a.id]: res.status === "ok" ? `Saved to ${res.data}` : `Failed: ${res.error}`,
+      [a.id]: opened.status === "ok" ? `Saved to ${saved.data}` : `Failed: ${opened.error}`,
     }));
   };
   return (
@@ -206,7 +212,7 @@ function AttachmentList({ files }: { files: Attachment_Serialize[] }) {
         <li key={a.id} className="flex items-center gap-3 py-0.5">
           <button
             className="rounded border border-[var(--line)] bg-transparent px-2 py-0.5"
-            onClick={() => void download(a)}
+            onClick={() => void open(a)}
           >
             {a.filename}
           </button>

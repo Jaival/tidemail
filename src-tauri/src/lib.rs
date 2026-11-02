@@ -48,7 +48,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::remove_account,
             commands::prefetch_bodies,
             commands::download_attachment,
-            commands::set_sender_images
+            commands::set_sender_images,
+            commands::open_attachment
         ])
         .events(tauri_specta::collect_events![
             events::DataChanged,

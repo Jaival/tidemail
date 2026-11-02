@@ -27,6 +27,8 @@ export const commands = {
 	downloadAttachment: (attachmentId: number) => typedError<string, string>(__TAURI_INVOKE("download_attachment", { attachmentId })),
 	/**  "Load images" choice for a sender, stored in `sender_prefs`. */
 	setSenderImages: (email: string, loadImages: boolean) => typedError<null, string>(__TAURI_INVOKE("set_sender_images", { email, loadImages })),
+	/**  Open a downloaded attachment in its default app. */
+	openAttachment: (attachmentId: number) => typedError<null, string>(__TAURI_INVOKE("open_attachment", { attachmentId })),
 };
 
 /** Events */
