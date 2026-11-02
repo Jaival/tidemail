@@ -24,7 +24,16 @@ const TOAST_MS = 5000;
 type Toast = { id: number; text: string; error?: boolean; undoIds?: number[] };
 type Overlay =
   | { type: "commands" }
-  | { type: "labels"; threadId: number; accountId: number; keys: string[] };
+  | { type: "labels"; threadId: number; accountId: number; keys: string[] }
+  | { type: "move"; threadId: number; accountId: number };
+
+/** How many threads after the opened one get their bodies prefetched. */
+const PREFETCH_CHOICES = [5, 10, 20, 25, 50] as const;
+const PREFETCH_KEY = "tidemail.prefetch";
+const savedPrefetch = (): number => {
+  const n = Number(localStorage.getItem(PREFETCH_KEY));
+  return (PREFETCH_CHOICES as readonly number[]).includes(n) ? n : 10;
+};
 
 const navTo = (labelKey: string, title: string): Nav => ({ view: { labelKey, accountId: null }, title });
 
@@ -38,6 +47,7 @@ export function Shell() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [accounts, setAccounts] = useState<Account_Serialize[]>([]);
   const [labels, setLabels] = useState<Label_Serialize[]>([]);
+  const [prefetchCount, setPrefetchCount] = useState(savedPrefetch);
   const searchRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<number[][]>([]);
   const toastId = useRef(0);
@@ -47,8 +57,8 @@ export function Shell() {
   const searching = query.trim() !== "";
   const ready = list.loaded;
 
-  const latest = useRef({ nav, list });
-  latest.current = { nav, list };
+  const latest = useRef({ nav, list, prefetchCount });
+  latest.current = { nav, list, prefetchCount };
 
   const notify = (text: string, extra?: Partial<Toast>) => setToast({ id: ++toastId.current, text, ...extra });
 
@@ -120,6 +130,21 @@ export function Shell() {
     })();
   }, [selectedId]);
 
+  // Prefetch bodies of the next N threads in the list after the opened one.
+  useEffect(() => {
+    if (selectedId === null) return;
+    const { list, prefetchCount } = latest.current;
+    const i = list.threads.findIndex((t) => t.id === selectedId);
+    if (i < 0) return;
+    const next = list.threads.slice(i + 1, i + 1 + prefetchCount).map((t) => t.id);
+    if (next.length > 0) void commands.prefetchThreads(next);
+  }, [selectedId]);
+
+  const choosePrefetch = (n: number) => {
+    localStorage.setItem(PREFETCH_KEY, String(n));
+    setPrefetchCount(n);
+  };
+
   const undo = async (actionIds: number[]) => {
     undoStack.current = undoStack.current.filter((ids) => ids !== actionIds);
     setToast(null);
@@ -154,6 +179,12 @@ export function Shell() {
     }
   };
 
+  const openMovePicker = async () => {
+    if (selectedId === null) return;
+    const detail = unwrap(await commands.getThread(selectedId));
+    if (detail) setOverlay({ type: "move", threadId: selectedId, accountId: detail.thread.accountId });
+  };
+
   const themes: [ThemePref, string][] = [
     ["system", "Theme: follow Windows"],
     ["dark", "Theme: dark"],
@@ -186,6 +217,7 @@ export function Shell() {
         ),
     },
     { id: "label", title: "Label…", shortcut: "l", run: () => void openLabelPicker() },
+    { id: "move", title: "Move to…", shortcut: "v", run: () => void openMovePicker() },
     {
       id: "unread",
       title: "Mark unread / read",
@@ -217,6 +249,13 @@ export function Shell() {
     { id: "sent", title: "Go to Sent", run: () => go("SENT", "Sent") },
     { id: "drafts", title: "Go to Drafts", run: () => go("DRAFT", "Drafts") },
     ...themes.map(([pref, title]): Command => ({ id: `theme-${pref}`, title, run: () => setThemePref(pref) })),
+    ...PREFETCH_CHOICES.map(
+      (n): Command => ({
+        id: `prefetch-${n}`,
+        title: `Prefetch: next ${n} threads${n === prefetchCount ? " (current)" : ""}`,
+        run: () => choosePrefetch(n),
+      }),
+    ),
   ];
   useShortcuts(cmds);
 
@@ -244,6 +283,17 @@ export function Shell() {
           [overlay.threadId],
           has ? `Removed ${label.name}` : `Labeled ${label.name}`,
         );
+      },
+    };
+  } else if (overlay?.type === "move") {
+    const targets = labels.filter((l) => !l.isSystem && l.accountId === overlay.accountId);
+    paletteProps = {
+      placeholder: "Move to label (removes from Inbox)",
+      items: targets.map((l) => ({ id: l.labelKey, title: l.name })),
+      onPick: (key) => {
+        const label = targets.find((l) => l.labelKey === key)!;
+        setOverlay(null);
+        void act({ type: "move", label_key: key }, [overlay.threadId], `Moved to ${label.name}`);
       },
     };
   }

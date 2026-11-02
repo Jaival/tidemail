@@ -47,7 +47,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_sync_status,
             commands::add_account,
             commands::remove_account,
-            commands::prefetch_bodies,
+            commands::prefetch_threads,
             commands::download_attachment,
             commands::set_sender_images,
             commands::open_attachment

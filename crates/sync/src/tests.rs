@@ -242,6 +242,35 @@ async fn backfilled() -> H {
 // ---- backfill ----
 
 #[tokio::test(start_paused = true)]
+async fn old_sanitizer_bodies_are_refetched_and_resanitized() {
+    let h = backfilled().await;
+    let rw = tidemail_db::open(&h.path).unwrap();
+    rw.execute(
+        "UPDATE bodies SET sanitizer_version = 1, html_sanitized = '<p>old</p>'          WHERE message_id = (SELECT id FROM messages WHERE gmail_id = 'm1')",
+        [],
+    )
+    .unwrap();
+    let current = tidemail_render::SANITIZER_VERSION as i64;
+    until_long(|| {
+        count(
+            &h.ro,
+            &format!("SELECT count(*) FROM bodies WHERE sanitizer_version < {current}"),
+        ) == 0
+    })
+    .await;
+    let html: String = h
+        .ro
+        .query_row(
+            "SELECT html_sanitized FROM bodies b JOIN messages m ON m.id = b.message_id WHERE m.gmail_id = 'm1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!html.contains("<p>old</p>") && !html.contains("script"), "{html}");
+    assert_eq!(fts_hits(&h.ro, "pineapple1"), 1);
+}
+
+#[tokio::test(start_paused = true)]
 async fn backfill_stores_messages_bodies_and_fts() {
     let h = backfilled().await;
     let c = &h.ro;

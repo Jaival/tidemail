@@ -149,7 +149,10 @@ impl AccountLoop {
             self.poll(&*api).await?;
             self.last_poll = Some(Instant::now());
         }
-        if self.backfill_page(&*api).await? || self.body_batch(&*api).await? {
+        if self.backfill_page(&*api).await?
+            || self.body_batch(&*api).await?
+            || self.resanitize_batch(&*api).await?
+        {
             return Ok(Step::More);
         }
         Ok(Step::Idle)
@@ -273,6 +276,30 @@ impl AccountLoop {
             let rows = st.query_map(params![self.id, BATCH as i64], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        if rows.is_empty() {
+            return Ok(false);
+        }
+        let threads = store_bodies(&self.db, self.id, api, &rows).await?;
+        self.inner.notifier.data_changed(threads, vec![]);
+        self.pace().await;
+        Ok(true)
+    }
+
+    /// Re-sanitize bodies stored by an older `SANITIZER_VERSION`: refetch the
+    /// raw HTML (format=full), newest first, after backfill and body passes
+    /// are done. Messages Gmail no longer has are deleted by `store_bodies`.
+    async fn resanitize_batch(&self, api: &dyn GmailApi) -> Result<bool> {
+        let rows: Vec<(i64, String)> = {
+            let conn = lock(&self.db);
+            let mut st = conn.prepare_cached(
+                "SELECT m.id, m.gmail_id FROM bodies b JOIN messages m ON m.id = b.message_id                  WHERE b.sanitizer_version < ?1 AND m.account_id = ?2                  ORDER BY m.internal_date DESC LIMIT ?3",
+            )?;
+            let rows = st.query_map(
+                params![tidemail_render::SANITIZER_VERSION, self.id, BATCH as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
             rows.collect::<std::result::Result<_, _>>()?
         };
         if rows.is_empty() {

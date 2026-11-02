@@ -48,16 +48,16 @@ Cold launch breakdown: process start to page navigation start is about 390–460
 | scroll dropped / blank frames (E2E) | 0 / 600, 0 | ≤ 2 %, 0 |
 | j/k open to paint p95 (E2E) | 7 ms (reader header; iframe paint not awaited) | 50 ms |
 
-### Phase 1 gaps (spec items not done yet)
+### Phase 1 gaps closed (2026-11-02)
 
-- Prefetch of the next 10 bodies on open: the shell does not call `prefetch_bodies`. `ThreadRow` has no message id, so this needs a small IPC change (e.g. prefetch by thread ids).
-- "Move to X" has no UI (sync supports it as add X + remove `INBOX`).
-- Re-sanitize job for old `sanitizer_version` rows (design in `docs/handoff/renderer.md`).
+- Prefetch: opening a thread calls `prefetch_threads` for the next N threads in the list (N = 5 / 10 / 20 / 25 / 50, default 10, set in the Ctrl+K palette, stored in `localStorage` `tidemail.prefetch`). `prefetch_threads` replaced the unused `prefetch_bodies` IPC command; engine prefetch queue is 512 ids.
+- "Move to…" (`v`, also in the palette): picks a user label of the thread's account; the action adds it and removes `INBOX` in one `threads.modify`.
+- Re-sanitize job: each account loop, after backfill and the body pass, refetches (`format=full`) bodies with `sanitizer_version < SANITIZER_VERSION`, newest first, 50 per batch, and stores them sanitized again (FTS refreshed). Migration 0003 indexes `bodies(sanitizer_version)`.
 - Known gaps per area are listed in each `docs/handoff/<area>.md`.
 
 ## Next
 
-1. Close the Phase 1 gaps above, then review the UI in the running app.
+1. Review the UI in the running app, then push `phase1` and open a PR to `main`.
 2. Phase 2: get cold launch under 400 ms. Measure without the CDP port first, then look at WebView2 start (environment options, browser args) and the gap before the first `list_threads` call.
 
 ## Decisions (2026-11-02)

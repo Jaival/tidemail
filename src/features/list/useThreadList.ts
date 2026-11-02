@@ -71,7 +71,7 @@ export function useThreadList(view: View) {
       const set = new Set(ids);
       const removes =
         kind.type === "trash" ||
-        (kind.type === "archive" && view.labelKey === "INBOX") ||
+        ((kind.type === "archive" || kind.type === "move") && view.labelKey === "INBOX") ||
         (kind.type === "unstar" && view.labelKey === "STARRED") ||
         (kind.type === "removeLabel" && kind.label_key === view.labelKey);
       const patch = (t: ThreadRow): ThreadRow => {

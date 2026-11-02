@@ -134,10 +134,26 @@ pub async fn remove_account(state: State<'_, AppState>, account_id: i64) -> Resu
         .map_err(|e| e.to_string())
 }
 
+/// Fetch missing bodies of these threads (the next N in the list) in the background.
 #[tauri::command(async)]
 #[specta]
-pub fn prefetch_bodies(state: State<'_, AppState>, message_ids: Vec<i64>) {
+pub fn prefetch_threads(state: State<'_, AppState>, thread_ids: Vec<i64>) -> Result<(), String> {
+    let message_ids: Vec<i64> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut st = db
+            .prepare_cached("SELECT id FROM messages WHERE thread_id = ?1 AND body_state != 1")
+            .map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for t in thread_ids {
+            let rows = st.query_map([t], |r| r.get(0)).map_err(|e| e.to_string())?;
+            for id in rows {
+                ids.push(id.map_err(|e| e.to_string())?);
+            }
+        }
+        ids
+    };
     state.engine.prefetch_bodies(&message_ids);
+    Ok(())
 }
 
 #[tauri::command]

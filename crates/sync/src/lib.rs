@@ -84,7 +84,7 @@ impl Default for Config {
             batch_gap: Duration::from_secs(1),
             body_policy_threshold: 300_000,
             body_window: Duration::from_secs(2 * 365 * 24 * 3600),
-            prefetch_queue: 64,
+            prefetch_queue: 512,
         }
     }
 }
