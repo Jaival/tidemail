@@ -164,40 +164,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     lines.push(line("thread open + body", times, THREAD_OPEN_P95, false));
 
-    // Search, one query per keystroke.
+    // Search: type each query char by char, one search per keystroke.
     let typed = [
-        "bu",
-        "bud",
-        "budg",
-        "budge",
-        "budget",
-        "budget r",
-        "budget re",
-        "budget rev",
-    ];
-    let ops = [
+        "budget review",
+        "invoice",
         "from:news",
-        "has:attachment",
+        "from:alice meeting",
         "is:unread",
+        "has:attachment report",
         "label:inbox is:unread",
         "after:2026/01/01 deploy",
+        "\"your order\"",
+        "the",
     ];
-    match tidemail_search::search(&conn, "probe", 1) {
-        Err(tidemail_search::Error::NotImplemented) => {
-            lines.push(skip("search per keystroke", SEARCH_P95))
-        }
-        _ => {
-            let mut times = Vec::new();
-            for _ in 0..10 {
-                for q in typed.iter().chain(ops.iter()) {
-                    let t = Instant::now();
-                    tidemail_search::search(&conn, q, 50)?;
-                    times.push(ms(t));
+    let verbose = std::env::args().any(|a| a == "--verbose");
+    let mut times = Vec::new();
+    for _ in 0..3 {
+        for q in &typed {
+            for (i, c) in q.char_indices() {
+                let prefix = &q[..i + c.len_utf8()];
+                let t = Instant::now();
+                tidemail_search::search(&conn, prefix, 50)?;
+                let d = ms(t);
+                if verbose && d > 20.0 {
+                    eprintln!("slow search {d:.1} ms: {prefix:?}");
                 }
+                times.push(d);
             }
-            lines.push(line("search per keystroke", times, SEARCH_P95, false));
         }
     }
+    lines.push(line("search per keystroke", times, SEARCH_P95, false));
 
     // Local action write (no network).
     let engine = tidemail_sync::Engine::start(path.clone(), Arc::new(Quiet));
