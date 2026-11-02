@@ -205,26 +205,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread_ids: vec![ids[0]],
         kind: ActionKind::Star,
     };
-    match engine.apply_action(probe) {
-        Err(tidemail_sync::Error::NotImplemented) => {
-            lines.push(skip("action write (local)", ACTION_P95))
-        }
-        r => {
-            let ticket = r?;
-            engine.undo_action(&ticket.action_ids)?;
-            let mut times = Vec::new();
-            for id in ids.iter().take(100) {
-                let t = Instant::now();
-                let tk = engine.apply_action(ActionRequest {
-                    thread_ids: vec![*id],
-                    kind: ActionKind::MarkRead,
-                })?;
-                times.push(ms(t));
-                engine.undo_action(&tk.action_ids)?;
-            }
-            lines.push(line("action write (local)", times, ACTION_P95, false));
-        }
+    // Warm up (statement cache), then undo so the bench leaves the DB unchanged.
+    let ticket = engine.apply_action(probe)?;
+    engine.undo_action(&ticket.action_ids)?;
+    let mut times = Vec::new();
+    for id in ids.iter().take(100) {
+        let t = Instant::now();
+        let tk = engine.apply_action(ActionRequest {
+            thread_ids: vec![*id],
+            kind: ActionKind::MarkRead,
+        })?;
+        times.push(ms(t));
+        engine.undo_action(&tk.action_ids)?;
     }
+    lines.push(line("action write (local)", times, ACTION_P95, false));
 
     let failed = lines.iter().any(|l| l.status == "FAIL");
     if arg("json").is_some() || std::env::args().any(|a| a == "--json") {
