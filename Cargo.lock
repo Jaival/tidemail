@@ -4722,8 +4722,10 @@ dependencies = [
 name = "tidemail"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "percent-encoding",
  "serde",
+ "serde_json",
  "specta",
  "specta-typescript",
  "tauri",
@@ -4736,6 +4738,7 @@ dependencies = [
  "tidemail-render",
  "tidemail-search",
  "tidemail-sync",
+ "tokio",
 ]
 
 [[package]]

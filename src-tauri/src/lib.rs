@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod events;
+mod gmail_adapter;
 mod tray;
 
 use std::{
@@ -199,7 +200,13 @@ pub fn run() {
             let db = tidemail_db::open(&path)?;
             let app_handle = app.handle().clone();
             let notifier: Arc<dyn tidemail_sync::Notifier> = Arc::new(AppNotifier(app_handle));
-            let engine = tidemail_sync::Engine::start(path.clone(), notifier);
+            let provider = Arc::new(gmail_adapter::Provider::new(app.handle().clone()));
+            let engine = tidemail_sync::Engine::start_with(
+                path.clone(),
+                notifier,
+                Some(provider),
+                tidemail_sync::Config::default(),
+            );
             app.manage(AppState {
                 db: Mutex::new(db),
                 db_path: path,

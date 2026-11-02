@@ -29,3 +29,6 @@ tidemail-render.workspace = true
 tidemail-search.workspace = true
 tidemail-sync.workspace = true
 tidemail-gmail.workspace = true
+async-trait = "0.1"
+tokio.workspace = true
+serde_json.workspace = true
