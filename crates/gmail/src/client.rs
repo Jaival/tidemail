@@ -194,7 +194,8 @@ impl GmailClient {
         page_token: Option<&str>,
         max_results: Option<u32>,
     ) -> Result<MessageList, Error> {
-        let mut query = Vec::new();
+        // Spam and trash are synced like any other label.
+        let mut query = vec![("includeSpamTrash", "true".to_string())];
         query.extend(q.map(|q| ("q", q.to_string())));
         query.extend(label_ids.iter().map(|l| ("labelIds", (*l).to_string())));
         query.extend(page_token.map(|t| ("pageToken", t.to_string())));

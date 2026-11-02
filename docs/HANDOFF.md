@@ -60,11 +60,14 @@ Cold launch breakdown: process start to page navigation start is about 390–460
 1. Close the Phase 1 gaps above, then review the UI in the running app.
 2. Phase 2: get cold launch under 400 ms. Measure without the CDP port first, then look at WebView2 start (environment options, browser args) and the gap before the first `list_threads` call.
 
+## Decisions (2026-11-02)
+
+- Opening a thread marks it read (silent, no undo toast; `u` marks it unread again).
+- `u` toggles read/unread.
+- Spam and trash are synced (`includeSpamTrash=true`). No sidebar views for them (spec does not list them); search still includes them.
+
 ## Open decisions
 
-- Mark a thread read when it is opened? (spec silent; not done)
-- `u` toggles read/unread; spec says "mark unread". Keep the toggle?
-- Sync spam and trash? `messages.list` skips them now; the full id diff compares SPAM/TRASH labels.
 
 - Google OAuth client setup is required before account sync can be exercised.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.

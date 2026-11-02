@@ -22,7 +22,7 @@
 
 ## Open questions
 
-- `messages.list` does not pass `includeSpamTrash`, so spam and trash are not synced. Spec does not say. Add a parameter if wanted.
+- `messages.list` always passes `includeSpamTrash=true`: spam and trash are synced (user decision, 2026-11-02).
 - `keyring` 4.2 is used through its default `v1` API. It is a new major version; check once on a real Windows machine that entries appear in Credential Manager.
 
 ## Known gaps (edge cases left out on purpose)

@@ -4,8 +4,9 @@
 // `bun run bench` builds the app and runs this after the Rust bench.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 
 const COLD_LAUNCH_MS = 400;
@@ -22,13 +23,20 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-const db = resolve(arg("db") ?? "bench.db");
+const sourceDb = resolve(arg("db") ?? "bench.db");
 const exe = resolve(arg("exe") ?? "target/release/tidemail.exe");
-for (const [what, path] of [["database", db], ["app", exe]]) {
+for (const [what, path] of [["database", sourceDb], ["app", exe]]) {
   if (!existsSync(path)) {
     console.error(`${what} not found: ${path}`);
     process.exit(2);
   }
+}
+
+// The app writes to its database (j/k marks threads read), so each run works on a copy.
+const workDir = mkdtempSync(join(tmpdir(), "tidemail-bench-"));
+const db = join(workDir, "bench.db");
+for (const suffix of ["", "-wal"]) {
+  if (existsSync(sourceDb + suffix)) copyFileSync(sourceDb + suffix, db + suffix);
 }
 
 function kill(app: ChildProcess) {
@@ -191,4 +199,5 @@ if (process.argv.includes("--json")) {
     console.log(`${l.name.padEnd(30)} ${l.status.padStart(6)} ${v.padStart(9)} ${`${l.budget}${l.unit}`.padStart(9)}  ${l.detail ?? ""}`);
   }
 }
+rmSync(workDir, { recursive: true, force: true });
 process.exit(lines.some((l) => l.status === "FAIL") ? 1 : 0);

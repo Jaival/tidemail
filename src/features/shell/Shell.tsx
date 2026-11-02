@@ -103,6 +103,23 @@ export function Shell() {
     notify(text, { undoIds: result.data.actionIds });
   };
 
+  // Opening a thread marks it read. Silent: no toast, no undo entry (`u` marks it unread again).
+  useEffect(() => {
+    if (selectedId === null) return;
+    const { list } = latest.current;
+    const row = list.threads.find((t) => t.id === selectedId);
+    void (async () => {
+      const thread = row ?? unwrap(await commands.getThread(selectedId))?.thread;
+      if (!thread || thread.unreadCount === 0) return;
+      list.apply([selectedId], { type: "markRead" });
+      const result = await commands.applyAction({ threadIds: [selectedId], kind: { type: "markRead" } });
+      if (result.status === "error") {
+        latest.current.list.refresh();
+        notify(`Mark read failed: ${result.error}`, { error: true });
+      }
+    })();
+  }, [selectedId]);
+
   const undo = async (actionIds: number[]) => {
     undoStack.current = undoStack.current.filter((ids) => ids !== actionIds);
     setToast(null);
