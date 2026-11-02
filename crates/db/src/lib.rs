@@ -10,7 +10,10 @@ use std::path::Path;
 pub use rusqlite;
 pub use rusqlite::{Connection, Error, Result};
 
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_threads_last_date.sql"),
+];
 
 /// Schema version this build expects.
 pub const SCHEMA_VERSION: usize = MIGRATIONS.len();

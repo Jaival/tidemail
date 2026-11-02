@@ -51,18 +51,6 @@ fn line(name: &'static str, mut t: Vec<f64>, budget: f64, use_max: bool) -> Line
     }
 }
 
-fn skip(name: &'static str, budget: f64) -> Line {
-    Line {
-        name,
-        status: "SKIP",
-        p50_ms: 0.0,
-        p95_ms: 0.0,
-        max_ms: 0.0,
-        budget_ms: budget,
-        samples: 0,
-    }
-}
-
 fn ms(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1000.0
 }

@@ -528,20 +528,11 @@ impl Inner {
             }
         };
         let base = self.db_path.parent().map(PathBuf::from).unwrap_or_default();
-        let path = tidemail_render::attachment_path(&base, account_id, message_id, &filename);
-        save_attachment(&path, &data)?;
+        let path =
+            tidemail_render::save_attachment_in(&base, account_id, message_id, &filename, &data)?;
         self.fg()
             .prepare_cached("UPDATE attachments SET local_path = ?2 WHERE id = ?1")?
             .execute(params![attachment_id, path.to_string_lossy()])?;
         Ok(path)
     }
-}
-
-/// Stand-in for `tidemail_render::save_attachment` (Mark-of-the-Web), which
-/// is written in parallel. Replace the body with that call on merge.
-fn save_attachment(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, data)
 }
