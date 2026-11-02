@@ -117,8 +117,8 @@ async function scroll(page: Page) {
 
 /**
  * Presses `j` and waits until the reader slot changed and two frames ran (the second rAF fires
- * after the frame with the change was presented). Quantized to the frame interval. With the
- * placeholder Reader this measures shell + list only; re-run once the real Reader is merged.
+ * after the frame with the change was presented). Quantized to the frame interval. The reader
+ * header changing is the signal; the iframe's own paint of the HTML body is not awaited.
  */
 async function openToPaint(page: Page): Promise<number[]> {
   await page.waitForSelector(".message-row");
@@ -162,7 +162,7 @@ for (let i = 0; i < LAUNCHES; i++) {
       name: "j/k open to paint (p95)",
       status: p95 <= OPEN_TO_PAINT_MS ? "PASS" : "FAIL",
       value: p95, budget: OPEN_TO_PAINT_MS, unit: "ms",
-      detail: "placeholder Reader; frame-quantized",
+      detail: "reader header; frame-quantized",
     });
     lines.push({
       name: "scroll blank frames",

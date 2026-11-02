@@ -28,23 +28,44 @@
 
 Cold launch breakdown: process start to page navigation start is about 390–460 ms (WebView2 environment start; the CDP debug port adds some). Navigation to first paint is about 175 ms, with about 60 ms between script load and the first `list_threads` call. Cold launch is measured from the start of `run()`, not from process creation.
 
+## Phase 1 status (branch `phase1`, not pushed)
+
+- Five agents built renderer, search, UI shell, Gmail sign-in/client and sync engine on `phase1-<area>` branches; all merged into `phase1` in spec order. Per-area notes: `docs/handoff/{renderer,search,shell,gmail,sync}.md`.
+- Applied by the main thread: `set_sender_images` and `open_attachment` IPC commands; migration 0002 (`threads(last_date DESC, id DESC)` for search); sync saves attachments through `tidemail_render::save_attachment_in` (Mark-of-the-Web); `src-tauri/src/gmail_adapter.rs` maps `tidemail_gmail` to the sync traits (`GmailApi`, `GmailProvider`), and the engine starts with it. `config.toml` is read lazily on first sign-in/API call, so the app runs on `bench.db` without it.
+- `cargo test --workspace`, clippy `-D warnings`, `bun run lint`, `bun run typecheck`, `bun run build` pass.
+- Not checked: the UI in a running app by a person (only build checks and the E2E bench), Credential Manager writes (`keyring` 4.x), anything against real Gmail.
+
+### Bench (bench.db, 2026-11-02, after the Phase 1 merge)
+
+| Metric | Result | Budget |
+|---|---|---|
+| open db + first inbox page (Rust) | 32.6 ms (includes migration 0002 on first open) | 100 ms |
+| list page p95 (Rust) | 0.16 ms | 10 ms |
+| thread open + body p95 (Rust) | 1.08 ms | 15 ms |
+| search per keystroke p95 (Rust) | 11.3 ms (max 73.5 ms) | 30 ms |
+| action write p95 (Rust, local) | 0.72 ms | 16 ms |
+| **cold launch, worst of 3 (E2E)** | **538 ms (433–538) FAIL** | 400 ms |
+| scroll dropped / blank frames (E2E) | 0 / 600, 0 | ≤ 2 %, 0 |
+| j/k open to paint p95 (E2E) | 7 ms (reader header; iframe paint not awaited) | 50 ms |
+
+### Phase 1 gaps (spec items not done yet)
+
+- Prefetch of the next 10 bodies on open: the shell does not call `prefetch_bodies`. `ThreadRow` has no message id, so this needs a small IPC change (e.g. prefetch by thread ids).
+- "Move to X" has no UI (sync supports it as add X + remove `INBOX`).
+- Re-sanitize job for old `sanitizer_version` rows (design in `docs/handoff/renderer.md`).
+- Known gaps per area are listed in each `docs/handoff/<area>.md`.
+
 ## Next
 
-1. Implement Phase 1 crate bodies and UI features against `bench.db`.
+1. Close the Phase 1 gaps above, then review the UI in the running app.
 2. Phase 2: get cold launch under 400 ms. Measure without the CDP port first, then look at WebView2 start (environment options, browser args) and the gap before the first `list_threads` call.
 
 ## Open decisions
 
+- Mark a thread read when it is opened? (spec silent; not done)
+- `u` toggles read/unread; spec says "mark unread". Keep the toggle?
+- Sync spam and trash? `messages.list` skips them now; the full id diff compares SPAM/TRASH labels.
+
 - Google OAuth client setup is required before account sync can be exercised.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
 - Phase 4 projects/classification remain intentionally undesigned.
-
-## Phase 1 (in progress)
-
-- Integration branch: `phase1`. Each agent works on `phase1-<area>` in its own worktree, branched from `phase1`.
-- Contracts added on `phase1` before the agents start:
-  - `set_sender_images(email, load_images)` IPC command.
-  - `src/features/reader/Reader.tsx`: `<Reader threadId={number | null} />`, rendered by the shell.
-  - `src/features/search/SearchPanel.tsx`: `<SearchPanel query onOpenThread />`, rendered by the shell.
-- Schema or IPC requests: each agent writes them to `docs/handoff/<area>.md` (own file, no merge conflicts). The main thread applies them.
-- Merge order: renderer, search, UI shell, sign-in, sync.
