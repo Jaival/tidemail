@@ -11,6 +11,7 @@ import { chromium, type Browser, type Page } from "playwright";
 const COLD_LAUNCH_MS = 400;
 const SCROLL_DROPPED_PCT = 2;
 const SCROLL_BLANK_FRAMES = 0;
+const OPEN_TO_PAINT_MS = 50;
 const LAUNCHES = 3;
 const PORT = 9333;
 
@@ -114,6 +115,33 @@ async function scroll(page: Page) {
   });
 }
 
+/**
+ * Presses `j` and waits until the reader slot changed and two frames ran (the second rAF fires
+ * after the frame with the change was presented). Quantized to the frame interval. With the
+ * placeholder Reader this measures shell + list only; re-run once the real Reader is merged.
+ */
+async function openToPaint(page: Page): Promise<number[]> {
+  await page.waitForSelector(".message-row");
+  return page.evaluate(async () => {
+    const reader = () => document.querySelector(".reader")?.textContent ?? "";
+    const frame = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    const press = () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+    press();
+    await frame();
+    const times: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      const before = reader();
+      const start = performance.now();
+      press();
+      await frame();
+      if (reader() === before) throw new Error("reader did not change after j");
+      times.push(performance.now() - start);
+    }
+    return times;
+  });
+}
+
 const lines: Line[] = [];
 const colds: number[] = [];
 for (let i = 0; i < LAUNCHES; i++) {
@@ -127,6 +155,14 @@ for (let i = 0; i < LAUNCHES; i++) {
       status: pct <= SCROLL_DROPPED_PCT ? "PASS" : "FAIL",
       value: pct, budget: SCROLL_DROPPED_PCT, unit: "%",
       detail: `${s.dropped}/${s.frames} frames, ${s.interval.toFixed(1)} ms interval, ${Math.round(s.scrolled)} px`,
+    });
+    const times = (await openToPaint(run.page)).sort((a, b) => a - b);
+    const p95 = times[Math.ceil(times.length * 0.95) - 1];
+    lines.push({
+      name: "j/k open to paint (p95)",
+      status: p95 <= OPEN_TO_PAINT_MS ? "PASS" : "FAIL",
+      value: p95, budget: OPEN_TO_PAINT_MS, unit: "ms",
+      detail: "placeholder Reader; frame-quantized",
     });
     lines.push({
       name: "scroll blank frames",
@@ -145,8 +181,6 @@ lines.unshift({
   value: worst, budget: COLD_LAUNCH_MS, unit: "ms",
   detail: colds.map((c) => `${c} ms`).join(", "),
 });
-// j/k needs the reader (Phase 1 UI shell + renderer).
-lines.push({ name: "j/k open to paint", status: "SKIP", value: 0, budget: 50, unit: "ms" });
 
 if (process.argv.includes("--json")) {
   console.log(JSON.stringify(lines));

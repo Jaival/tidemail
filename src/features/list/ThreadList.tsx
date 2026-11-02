@@ -1,62 +1,44 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { commands, type Cursor, type ThreadRow, type View } from "../../bindings";
+import type { ThreadRow } from "../../bindings";
+import { formatDate } from "../../lib/format";
 
-const PAGE = 100;
-const ROW_HEIGHT = 56;
+const ROW_HEIGHT = 64;
 
-type Props = { view: View; onFirstPage: () => void };
+type Props = {
+  threads: ThreadRow[];
+  loaded: boolean;
+  error?: string;
+  selectedId: number | null;
+  /** Account colors by id; dots show only when `showDots` (unified views). */
+  colors: Map<number, string>;
+  showDots: boolean;
+  onSelect: (threadId: number) => void;
+  onNearEnd: () => void;
+};
 
-export function ThreadList({ view, onFirstPage }: Props) {
-  const [threads, setThreads] = useState<ThreadRow[]>([]);
-  const [error, setError] = useState<string>();
-  const [loaded, setLoaded] = useState(false);
-  const next = useRef<Cursor | null>(null);
-  const loading = useRef(false);
+export function ThreadList({ threads, loaded, error, selectedId, colors, showDots, onSelect, onNearEnd }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
-
-  const loadPage = useCallback(
-    async (cursor: Cursor | null) => {
-      if (loading.current) return;
-      loading.current = true;
-      try {
-        const result = await commands.listThreads(view, cursor, PAGE);
-        if (result.status === "ok") {
-          next.current = result.data.next ?? null;
-          setThreads((prev) => (cursor ? [...prev, ...result.data.items] : result.data.items));
-        } else {
-          setError(result.error);
-        }
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        loading.current = false;
-        setLoaded(true);
-      }
-    },
-    [view],
-  );
-
-  useEffect(() => {
-    void loadPage(null);
-  }, [loadPage]);
-  useEffect(() => {
-    if (loaded) onFirstPage();
-  }, [loaded, onFirstPage]);
-
-  const rowVirtualizer = useVirtualizer({
+  const virtualizer = useVirtualizer({
     count: threads.length,
     getScrollElement: () => listRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
+    // Paint rows in the first commit instead of waiting for the first measurement.
+    initialRect: { width: 400, height: window.innerHeight },
   });
 
-  const items = rowVirtualizer.getVirtualItems();
+  const selectedIndex = selectedId === null ? -1 : threads.findIndex((t) => t.id === selectedId);
+  useEffect(() => {
+    if (selectedIndex >= 0) virtualizer.scrollToIndex(selectedIndex);
+  }, [selectedIndex, virtualizer]);
+
+  const items = virtualizer.getVirtualItems();
   const lastIndex = items.length ? items[items.length - 1].index : -1;
   useEffect(() => {
     // Load the next page well before the user reaches the end.
-    if (next.current && lastIndex >= threads.length - 30) void loadPage(next.current);
-  }, [lastIndex, threads.length, loadPage]);
+    if (lastIndex >= threads.length - 30) onNearEnd();
+  }, [lastIndex, threads.length, onNearEnd]);
 
   if (error) {
     return (
@@ -71,30 +53,48 @@ export function ThreadList({ view, onFirstPage }: Props) {
     return (
       <div className="empty">
         <span className="empty-icon">✳</span>
-        <h2>Your inbox is clear</h2>
+        <h2>Nothing here</h2>
         <p>Messages will appear here after sync starts.</p>
       </div>
     );
   }
   return (
-    <div className="message-list" ref={listRef}>
-      <div className="virtual-space" style={{ height: rowVirtualizer.getTotalSize() }}>
+    <div className="message-list" ref={listRef} role="listbox" aria-label="Threads">
+      <div className="virtual-space" style={{ height: virtualizer.getTotalSize() }}>
         {items.map((row) => {
           const thread = threads[row.index];
           return (
-            <button
+            <div
               className="message-row"
+              role="option"
+              aria-selected={thread.id === selectedId}
+              data-unread={thread.unreadCount > 0}
               key={thread.id}
               data-index={row.index}
               style={{ transform: `translateY(${row.start}px)` }}
+              onClick={() => onSelect(thread.id)}
             >
-              <span className="sender">{thread.participants || "Unknown sender"}</span>
-              <span className="message-copy">
-                <strong>{thread.subject || "(no subject)"}</strong>
-                <span> — {thread.snippet}</span>
+              <span
+                className="account-dot"
+                style={showDots ? { background: colors.get(thread.accountId) } : undefined}
+              />
+              <span className="row-main">
+                <span className="row-top">
+                  <span className="sender">{thread.participants || "Unknown sender"}</span>
+                  {thread.messageCount > 1 && <span className="count">{thread.messageCount}</span>}
+                  <time>{formatDate(thread.lastDate)}</time>
+                </span>
+                <span className="row-sub">
+                  <strong>{thread.subject || "(no subject)"}</strong>
+                  <span> — {thread.snippet}</span>
+                </span>
               </span>
-              <time>{new Date(thread.lastDate).toLocaleDateString()}</time>
-            </button>
+              {thread.isStarred && (
+                <span className="star" aria-label="Starred">
+                  ★
+                </span>
+              )}
+            </div>
           );
         })}
       </div>
