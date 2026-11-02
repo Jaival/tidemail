@@ -4798,11 +4798,15 @@ dependencies = [
 name = "tidemail-sync"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tidemail-db",
  "tidemail-gmail",
  "tidemail-render",
  "tidemail-search",
+ "tokio",
 ]
 
 [[package]]

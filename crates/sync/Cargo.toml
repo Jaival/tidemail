@@ -10,3 +10,10 @@ tidemail-gmail.workspace = true
 tidemail-render.workspace = true
 tidemail-search.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
