@@ -16,6 +16,9 @@ tidemail-search.workspace = true
 tidemail-sync.workspace = true
 gpui-kit.workspace = true
 gpui-webview.workspace = true
+# Same crate gpui-webview builds on (lib name `lb_wry`); used for the builder and Windows extras.
+wry = { package = "lb-wry", version = "0.53.3" }
+webview2-com = "0.38"
 tray-icon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,6 +30,7 @@ raw-window-handle = "0.6"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Pipes",

@@ -22,7 +22,6 @@ pub fn icon(path: &'static str, size: f32, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-#[allow(dead_code)] // Reader toolbar (1G-B reader agent).
 /// Square button with an icon and a tooltip ("Archive  e").
 pub fn icon_button(
     id: impl Into<ElementId>,
@@ -72,7 +71,6 @@ pub fn key_hint(keys: &[&'static str], text: &'static str, cx: &App) -> Div {
         .child(div().ml_0p5().child(text))
 }
 
-#[allow(dead_code)] // Label chips in the reader (1G-B reader agent).
 /// Rounded label: text on a tint of `color`.
 pub fn chip(text: impl Into<SharedString>, color: Hsla) -> Div {
     div()

@@ -183,3 +183,11 @@ and a choice of eleven interface and ten code fonts (defaults Inter and
 Obel Mono, replacing Segoe UI Variable), with a "Hide secrets in code"
 switch (Obel Mono's masking).
 Colour becomes separate from the layout preset; ADR 0003 will amend ADR 0002.
+
+## Requests
+
+### From the reader agent (1G-B)
+
+1. **DirectComposition off (applied in `main.rs`, please review).** With the GPUI DirectComposition swap chain the WebView2 child window is never visible (page loads, bounds are right, nothing shows). Checked by screenshot: `GPUI_DISABLE_DIRECT_COMPOSITION=1` shows it, `0` does not. `main.rs` sets the variable before GPUI starts. Check cold launch and scroll in the release bench; if they regress, the alternative is a separate popup window for the webview.
+2. **`Reader::new(state, window, cx)`** (was `(state, cx)`): the host is scheduled from the constructor. Only `shell/mod.rs` calls it.
+3. **jk budget:** `shown()` now waits for the WebView2 page load; debug p95 is 99-157 ms. If the release bench misses 50 ms, option: count the title event (earlier than page load) as shown.
