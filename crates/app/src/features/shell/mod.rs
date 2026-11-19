@@ -35,7 +35,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let list = cx.new(|cx| ThreadList::new(state.clone(), first, cx));
-        let reader = cx.new(|cx| Reader::new(state.clone(), cx));
+        let reader = cx.new(|cx| Reader::new(state.clone(), window, cx));
         let sub = cx.subscribe(&state, |_, _, event, cx| {
             if matches!(
                 event,

@@ -7753,6 +7753,7 @@ dependencies = [
  "futures",
  "gpui-kit",
  "gpui-webview",
+ "lb-wry",
  "raw-window-handle",
  "serde",
  "serde_json",
@@ -7763,6 +7764,7 @@ dependencies = [
  "tidemail-sync",
  "tokio",
  "tray-icon",
+ "webview2-com",
  "windows-sys 0.61.2",
 ]
 
