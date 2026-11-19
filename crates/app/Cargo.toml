@@ -1,0 +1,36 @@
+[package]
+name = "tidemail"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tidemail"
+path = "src/main.rs"
+
+[dependencies]
+tidemail-db.workspace = true
+tidemail-gmail.workspace = true
+tidemail-render.workspace = true
+tidemail-search.workspace = true
+tidemail-sync.workspace = true
+gpui-kit.workspace = true
+gpui-webview.workspace = true
+tray-icon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait = "0.1"
+tokio.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures = "0.3"
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

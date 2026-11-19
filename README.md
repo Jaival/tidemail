@@ -1,16 +1,15 @@
 # Tidemail
 
-Tidemail is a local-first Gmail client for Windows 11. Mailbox reads use one local SQLite database; Gmail sync and actions are implemented in later phases.
+Tidemail is a local-first Gmail client for Windows 11. Mailbox reads use one local SQLite database; a background engine syncs Gmail. The UI is native Rust (GPUI).
 
 ## Development
 
-- Install Rust (stable), Bun, and the WebView2 Runtime.
-- Run `bun install` and `cargo check --workspace`.
-- Start the desktop app with `bun run tauri dev`.
-- Build with `bun run tauri build`.
-- The app uses `%LOCALAPPDATA%\Tidemail\mail.db` by default. Pass `--db <path>` to the app or benchmark to select another database.
-- Generate the deterministic benchmark mailbox with `cargo run -p tidemail-bench --bin fakegen -- --db bench.db`.
-- Run the benchmarks with `bun run bench -- --db bench.db`. It runs the Rust bench, builds the release app (`tauri build --no-bundle`) and runs the E2E bench (`e2e/bench.ts`, Playwright over WebView2 CDP, under Node). Close Tidemail first: single-instance would hand the launch to the running app. Add `--skip-e2e` for the Rust part only.
+- Install Rust (stable, MSVC) and the WebView2 Runtime (used by the reader pane only). The GPUI build needs `fxc.exe` from the Windows SDK; set `GPUI_FXC_PATH` if it is not found.
+- Build and run: `cargo run --release -p tidemail`. The first build takes several minutes (GPUI).
+- The app uses `%LOCALAPPDATA%\Tidemail\mail.db` by default. Pass `--db <path>` to the app or benchmark to select another database. UI settings (theme, prefetch count) live in `settings.json` next to the database.
+- Generate the deterministic benchmark mailbox with `cargo run --release -p tidemail-bench --bin fakegen -- --db bench.db`.
+- Run the benchmarks: `cargo build --release -p tidemail -p tidemail-bench`, then `targeteleaseench-all.exe --db bench.db`. It runs the Rust bench, then the release app 3 times with `--bench` on a copy of the database (cold launch, j/k open to paint, scrolling). Add `--skip-app` for the Rust part only.
+- `vendor/gpui-pre-windows` is `gpui-pre-windows` 0.3.11 with one change (`vendor/gpui-pre-windows-parallel-dx.patch`): DirectX devices are created on a thread while DirectWrite starts. Re-apply it when upgrading GPUI.
 
 ## Local data and Windows Defender
 

@@ -11,3 +11,9 @@ Use the five canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, 
 ### Domain docs
 
 Use the single-context layout with root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
+## Checks
+
+- Build: `cargo build --workspace`
+- Lint: `cargo clippy --workspace --all-targets`
+- Test: `cargo test --workspace`; narrow with `cargo test -p <crate>`

@@ -1,12 +1,11 @@
-//! Types that cross the IPC boundary. `tauri-specta` exports them to
-//! `src/bindings.ts`. Frozen for Phase 1; changes go through docs/HANDOFF.md.
+//! Types shared by the UI, sync engine and search. Frozen for Phase 1G-B;
+//! changes go through docs/HANDOFF.md.
 //!
-//! Ids are SQLite rowids (`i64`, exported as TS `number`). Timestamps are ms.
+//! Ids are SQLite rowids (`i64`). Timestamps are ms.
 
 use serde::{Deserialize, Serialize};
-use specta::Type;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub id: i64,
@@ -15,7 +14,7 @@ pub struct Account {
     pub color: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Label {
     pub id: i64,
@@ -29,8 +28,16 @@ pub struct Label {
     pub color: Option<String>,
 }
 
+/// Unread threads of one account under one label (`read::unread_counts`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadCount {
+    pub account_id: i64,
+    pub label_key: String,
+    pub count: i64,
+}
+
 /// A list: a label, either unified (all accounts) or for one account.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
     pub label_key: String,
@@ -38,14 +45,14 @@ pub struct View {
 }
 
 /// Keyset paging cursor: the last row of the previous page.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cursor {
     pub last_date: i64,
     pub thread_id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadRow {
     pub id: i64,
@@ -60,7 +67,7 @@ pub struct ThreadRow {
     pub is_starred: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadPage {
     pub items: Vec<ThreadRow>,
@@ -68,7 +75,7 @@ pub struct ThreadPage {
     pub next: Option<Cursor>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BodyState {
     Missing,
@@ -93,7 +100,7 @@ impl BodyState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub id: i64,
@@ -106,7 +113,7 @@ pub struct Attachment {
     pub local_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageMeta {
     pub id: i64,
@@ -123,7 +130,7 @@ pub struct MessageMeta {
     pub attachments: Vec<Attachment>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadDetail {
     pub thread: ThreadRow,
@@ -132,7 +139,7 @@ pub struct ThreadDetail {
     pub label_keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Body {
     pub message_id: i64,
@@ -146,7 +153,7 @@ pub struct Body {
 
 // ---- Phase 1 types (commands are stubs in Phase 0) ----
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum ActionKind {
     Archive,
@@ -170,7 +177,7 @@ pub enum ActionKind {
 }
 
 /// Applies to whole threads.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionRequest {
     pub thread_ids: Vec<i64>,
@@ -178,13 +185,13 @@ pub struct ActionRequest {
 }
 
 /// `action_queue` row ids created by one request. Pass to `undo_action`.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionTicket {
     pub action_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub thread: ThreadRow,
@@ -194,7 +201,7 @@ pub struct SearchHit {
     pub snippet_html: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AccountSyncState {
     Idle,
@@ -203,7 +210,7 @@ pub enum AccountSyncState {
     AuthError,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSync {
     pub account_id: i64,
@@ -211,7 +218,7 @@ pub struct AccountSync {
     pub last_sync_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FailedAction {
     pub id: i64,
@@ -220,7 +227,7 @@ pub struct FailedAction {
     pub error: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
     pub accounts: Vec<AccountSync>,

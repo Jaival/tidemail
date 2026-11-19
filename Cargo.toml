@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "src-tauri"]
+members = ["crates/*"]
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -21,11 +22,16 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 ammonia = "4"
 
-# Pinned triple, see docs/research/tauri-specta-and-tray.md. Upgrade only on purpose.
-specta = { version = "=2.0.0-rc.26", features = ["derive"] }
-specta-typescript = "=0.0.13"
-tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+# UI. Exact pins, see docs/adr/0001-native-ui-with-gpui.md. Upgrade only on purpose.
+gpui-kit = "=0.9.0"
+gpui-webview = "=0.9.0"
+tray-icon = "=0.26.1"
 
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+# Parallel DirectX device creation at startup (cold-launch budget).
+# See vendor/gpui-pre-windows-parallel-dx.patch.
+[patch.crates-io]
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }

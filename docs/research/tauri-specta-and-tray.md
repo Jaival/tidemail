@@ -1,5 +1,7 @@
 # tauri-specta versions and Tauri 2 tray (Windows)
 
+> Historical (Tauri, Phase 0/1). The app moved to GPUI; see `docs/adr/0001-native-ui-with-gpui.md`.
+
 Researched 2026-10-31. Primary sources only.
 
 ## Summary
