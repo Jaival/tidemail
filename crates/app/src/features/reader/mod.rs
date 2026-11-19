@@ -119,7 +119,24 @@ impl Reader {
         let paper = colors(cx).paper;
         let rgb: gpui_kit::Rgba = paper.into();
         let background = [rgb.r, rgb.g, rgb.b].map(|v| (v * 255.0).round() as u8);
-        let (host, mut loaded) = match host::build(db, background, window, cx) {
+        let parent = crate::win::hwnd(window);
+        let executor = cx.background_executor().clone();
+        // WebView2 creation pumps messages: build it outside any App borrow
+        // (see `host.rs`), then attach it in an update.
+        cx.spawn_in(window, async move |this, cx| {
+            let built = host::build(parent, db, background, executor);
+            let _ = this.update_in(cx, |this, window, cx| this.attach_host(built, window, cx));
+        })
+        .detach();
+    }
+
+    fn attach_host(
+        &mut self,
+        built: wry::Result<(wry::WebView, host::Loaded)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (webview, mut loaded) = match built {
             Ok(built) => built,
             Err(e) => {
                 eprintln!("tidemail: reader webview unavailable: {e}");
@@ -127,6 +144,11 @@ impl Reader {
                 self.present(cx);
                 return;
             }
+        };
+        let webview = gpui_webview::WebView::new(webview, window, cx);
+        let host = Host {
+            view: cx.new(|_| webview),
+            applied: Default::default(),
         };
         let _ = host.view.update(cx, |v, _| v.set_visible(false));
         // Page-load events arrive on the UI thread; turn them into entity updates.
@@ -630,7 +652,35 @@ impl Reader {
             .bg(c.paper)
             .text_color(c.paper_fg);
         match (&self.host, self.html_mode) {
-            (Some(host), true) => area.child(host.view.clone()),
+            (Some(host), true) => {
+                // Our own element instead of `gpui_webview`'s: that one sets the
+                // WebView2 bounds and visibility on every frame (costly while the
+                // list scrolls). Visibility is `sync_visibility`'s job.
+                let (view, applied) = (host.view.clone(), host.applied.clone());
+                area.child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            if applied.replace(bounds) != bounds {
+                                let rect = wry::Rect {
+                                    position: wry::dpi::LogicalPosition::new(
+                                        f64::from(bounds.origin.x),
+                                        f64::from(bounds.origin.y),
+                                    )
+                                    .into(),
+                                    size: wry::dpi::LogicalSize::new(
+                                        f64::from(bounds.size.width),
+                                        f64::from(bounds.size.height),
+                                    )
+                                    .into(),
+                                };
+                                let _ = view.read(cx).set_bounds(rect);
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .size_full(),
+                )
+            }
             _ => {
                 let text = match self.body.as_ref().and_then(|b| b.body.as_ref()) {
                     Some(b) if !b.text.is_empty() => b.text.clone(),

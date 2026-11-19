@@ -75,10 +75,6 @@ fn main() {
     };
     let (tx, mut rx) = events::channel();
 
-    // With DirectComposition the swap chain covers child windows, so the
-    // reader's WebView2 stays invisible. Read once by GPUI at startup.
-    std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1");
-
     let preload = {
         let (path, tx, bench) = (args.db.clone(), tx.clone(), args.bench.is_some());
         std::thread::spawn(move || {

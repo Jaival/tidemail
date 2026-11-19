@@ -1,11 +1,16 @@
 //! The WebView2 host: one instance, scripts off, locked down. Created once
 //! after the first frame and reused for every message.
+//!
+//! WebView2 creation runs a nested message loop (`wait_with_pump`), so
+//! [`build`] must run while no GPUI `App` borrow is held (in a spawned task,
+//! between updates): a GPUI task dispatched by that loop would panic.
 
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
 use futures::channel::mpsc::{unbounded, UnboundedReceiver};
-use gpui_kit::{App, AppContext, Entity, Window};
-use gpui_webview::WebView;
+use gpui_kit::BackgroundExecutor;
+use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle};
+use windows_sys::Win32::Foundation::HWND;
 use webview2_com::FocusChangedEventHandler;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use wry::{
@@ -17,23 +22,36 @@ use super::page;
 use crate::data::Db;
 
 pub struct Host {
-    pub view: Entity<WebView>,
+    pub view: gpui_kit::Entity<gpui_webview::WebView>,
+    /// Bounds last given to WebView2 (set only when they change).
+    pub applied: std::rc::Rc<Cell<gpui_kit::Bounds<gpui_kit::Pixels>>>,
+}
+
+/// The main window, as the webview's parent.
+struct Parent(HWND);
+
+impl HasWindowHandle for Parent {
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+        let hwnd = std::num::NonZeroIsize::new(self.0 as isize).ok_or(HandleError::Unavailable)?;
+        let raw = RawWindowHandle::Win32(Win32WindowHandle::new(hwnd));
+        // SAFETY: the main window outlives the webview (both live until exit).
+        Ok(unsafe { WindowHandle::borrow_raw(raw) })
+    }
 }
 
 /// Nonces (`<title>`) of documents whose page load finished.
 pub type Loaded = UnboundedReceiver<u64>;
 
 pub fn build(
+    parent: HWND,
     db: Arc<Db>,
     background: [u8; 3],
-    window: &mut Window,
-    cx: &mut App,
-) -> wry::Result<(Host, Loaded)> {
+    executor: BackgroundExecutor,
+) -> wry::Result<(wry::WebView, Loaded)> {
     let (tx, loaded) = unbounded();
     // Title events come before the page-load event of the same document.
     let title = Rc::new(Cell::new(0u64));
     let title_seen = title.clone();
-    let executor = cx.background_executor().clone();
 
     let builder = WebViewBuilder::new()
         .with_javascript_disabled()
@@ -94,8 +112,7 @@ pub fn build(
             },
         );
 
-    let parent = crate::win::hwnd(window);
-    let webview = WebView::build(builder, window, cx)?;
+    let webview = builder.build_as_child(&Parent(parent))?;
     // A click in the page moves Win32 focus into WebView2; give it back so
     // j/k and the shortcuts keep working in GPUI.
     let mut token = 0i64;
@@ -106,6 +123,5 @@ pub fn build(
         }));
         webview.controller().add_GotFocus(&handler, &mut token)?;
     }
-    let view = cx.new(|_| webview);
-    Ok((Host { view }, loaded))
+    Ok((webview, loaded))
 }
