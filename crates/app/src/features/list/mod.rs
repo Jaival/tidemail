@@ -1,7 +1,7 @@
 //! Virtualized thread list for the current view. Pages through the database
 //! with keyset cursors; j/k move the selection (and open per the preset).
 
-mod row;
+pub(crate) mod row;
 
 use std::{ops::Range, time::Duration};
 
@@ -263,6 +263,7 @@ impl ThreadList {
             selected: state.selected == Some(row.id),
             account,
             display_font: spec.display_font,
+            snippet: None,
         };
         let id = row.id;
         row::render(spec.row, spec.row_height, &r, cx)

@@ -12,7 +12,11 @@ use tidemail_db::types::{ActionKind, ThreadPage};
 
 use crate::{
     actions::*,
-    features::{list::ThreadList, reader::Reader, search},
+    features::{
+        list::ThreadList,
+        reader::Reader,
+        search::{Results, Search, SearchEvent},
+    },
     preset::{NavStyle, ReaderPlacement},
     state::{AppState, Nav, StateEvent},
     theme::colors,
@@ -23,8 +27,9 @@ pub struct Shell {
     pub state: Entity<AppState>,
     pub list: Entity<ThreadList>,
     pub reader: Entity<Reader>,
+    pub search: Entity<Search>,
     focus: FocusHandle,
-    _subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl Shell {
@@ -36,6 +41,7 @@ impl Shell {
     ) -> Self {
         let list = cx.new(|cx| ThreadList::new(state.clone(), first, cx));
         let reader = cx.new(|cx| Reader::new(state.clone(), window, cx));
+        let search = cx.new(|cx| Search::new(state.clone(), window, cx));
         let sub = cx.subscribe(&state, |_, _, event, cx| {
             if matches!(
                 event,
@@ -50,13 +56,26 @@ impl Shell {
         });
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        // The input hands focus back (Escape, Enter) so j/k work again.
+        let leave = cx.subscribe_in(&search, window, |this, _, _: &SearchEvent, window, cx| {
+            this.focus.focus(window, cx)
+        });
+        // Show or hide the results list when the query changes.
+        let observe = cx.observe(&search, |_, _, cx| cx.notify());
         Self {
             state,
             list,
             reader,
+            search,
             focus,
-            _subscription: sub,
+            _subscriptions: vec![sub, leave, observe],
         }
+    }
+
+    /// The results list, while a query is active.
+    fn results(&self, cx: &App) -> Option<Entity<Results>> {
+        let s = self.search.read(cx);
+        s.active.then(|| s.results.clone())
     }
 
     /// Apply `kind` to the opened thread, with an undo toast.
@@ -65,7 +84,12 @@ impl Shell {
         kind: impl FnOnce(&tidemail_db::types::ThreadRow) -> (ActionKind, &'static str),
         cx: &mut Context<Self>,
     ) {
-        let Some(row) = self.list.read(cx).current(cx) else {
+        let search = self.search.read(cx);
+        let row = match search.active {
+            true => search.results.read(cx).current(cx),
+            false => self.list.read(cx).current(cx),
+        };
+        let Some(row) = row else {
             return;
         };
         let (kind, text) = kind(&row);
@@ -80,7 +104,13 @@ impl Render for Shell {
         let theme = cx.theme();
         let spec = self.state.read(cx).spec();
         let mut context = KeyContext::default();
-        context.add(CONTEXT);
+        // While the search input has focus the single-key bindings must not
+        // match: the shell context is replaced by one without bindings.
+        context.add(if self.search.read(cx).focused {
+            "TidemailSearch"
+        } else {
+            CONTEXT
+        });
         if self.state.read(cx).reading {
             context.add(READING);
         }
@@ -96,13 +126,32 @@ impl Render for Shell {
             .font_family(theme.font_family.clone())
             .text_size(theme.font_size)
             .on_action(cx.listener(|this, _: &SelectNext, _, cx| {
-                this.list.update(cx, |l, cx| l.select_next(cx))
+                match this.results(cx) {
+                    Some(r) => r.update(cx, |r, cx| r.select_next(cx)),
+                    None => this.list.update(cx, |l, cx| l.select_next(cx)),
+                }
             }))
             .on_action(cx.listener(|this, _: &SelectPrev, _, cx| {
-                this.list.update(cx, |l, cx| l.select_prev(cx))
+                match this.results(cx) {
+                    Some(r) => r.update(cx, |r, cx| r.select_prev(cx)),
+                    None => this.list.update(cx, |l, cx| l.select_prev(cx)),
+                }
             }))
             .on_action(cx.listener(|this, _: &OpenThread, _, cx| {
-                this.list.update(cx, |l, cx| l.open_current(cx))
+                match this.results(cx) {
+                    Some(r) => r.update(cx, |r, cx| r.open_current(cx)),
+                    None => this.list.update(cx, |l, cx| l.open_current(cx)),
+                }
+            }))
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                this.search.update(cx, |s, cx| s.focus(window, cx))
+            }))
+            // Escape with results shown and the reader closed clears the query.
+            .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
+                match this.results(cx) {
+                    Some(_) => this.search.update(cx, |s, cx| s.clear(window, cx)),
+                    None => cx.propagate(),
+                }
             }))
             .on_action(cx.listener(|this, _: &CloseReader, _, cx| {
                 this.state.update(cx, |s, cx| s.close_reader(cx))
@@ -144,7 +193,9 @@ impl Shell {
     fn title_bar(&self, cx: &App) -> impl IntoElement {
         let s = self.state.read(cx);
         let c = colors(cx);
-        let tabs = s.spec().nav == NavStyle::Tabs;
+        // Command: the input replaces the tabs while it has focus or a query is active.
+        let search_open = self.search.read(cx).active || self.search.read(cx).focused;
+        let tabs = s.spec().nav == NavStyle::Tabs && !search_open;
         // Paper: the search slot sits at the top of the list instead.
         let search_here = s.spec().nav != NavStyle::Rail;
         TitleBar::new().child(
@@ -157,7 +208,7 @@ impl Shell {
                 .when(tabs, |d| d.child(tabs::render(&self.state, cx)))
                 .child(div().flex_1())
                 .when(search_here, |d| {
-                    d.child(div().w(px(360.)).child(search::slot(cx)))
+                    d.child(div().w(px(360.)).child(self.search.clone()))
                 })
                 .when(!tabs, |d| d.child(div().flex_1()))
                 .when(tabs, |d| d.child(div().w(px(12.))))
@@ -198,12 +249,14 @@ impl Shell {
         let s = self.state.read(cx);
         let spec = s.spec();
         let c = colors(cx);
+        let searching = self.search.read(cx).active;
         let row = div().flex_1().min_h_0().flex();
         if spec.reader == ReaderPlacement::Replace {
             // Command: one pane; the reader replaces the list while reading.
-            return row.child(div().size_full().map(|d| match s.reading {
-                true => d.child(self.reader.clone()),
-                false => d.child(self.list.clone()),
+            return row.child(div().size_full().map(|d| match (s.reading, searching) {
+                (true, _) => d.child(self.reader.clone()),
+                (false, true) => d.child(self.search.read(cx).results.clone()),
+                (false, false) => d.child(self.list.clone()),
             }));
         }
         let paper = spec.nav == NavStyle::Rail;
@@ -222,10 +275,13 @@ impl Shell {
                 .border_x_1()
                 .border_color(c.border)
                 .when(paper, |d| {
-                    d.child(div().px_3().pt_3().child(search::slot(cx)))
+                    d.child(div().px_3().pt_3().child(self.search.clone()))
                 })
-                .child(self.list_header(cx))
-                .child(div().flex_1().min_h_0().child(self.list.clone()))
+                .when(!searching, |d| d.child(self.list_header(cx)))
+                .child(div().flex_1().min_h_0().child(match searching {
+                    true => self.search.read(cx).results.clone().into_any_element(),
+                    false => self.list.clone().into_any_element(),
+                }))
                 .when(paper, |d| {
                     d.child(
                         div()

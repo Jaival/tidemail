@@ -6,6 +6,7 @@ use gpui_kit::{prelude::FluentBuilder, *};
 use tidemail_db::types::ThreadRow;
 
 use crate::{
+    features::search::Snippet,
     format,
     preset::RowStyle,
     theme::{colors, Colors},
@@ -18,6 +19,9 @@ pub struct Row<'a> {
     /// Account colour, in unified views only.
     pub account: Option<Hsla>,
     pub display_font: Option<&'static str>,
+    /// Search results: the matched snippet replaces the thread snippet and
+    /// its marked runs are highlighted.
+    pub snippet: Option<&'a Snippet>,
 }
 
 impl Row<'_> {
@@ -77,6 +81,21 @@ fn count(row: &Row, c: &Colors) -> Option<Div> {
     })
 }
 
+/// The snippet after `prefix`; marked runs (search results) in the accent colour.
+fn snippet_text(row: &Row, prefix: &str, c: &Colors) -> StyledText {
+    let Some(s) = row.snippet else {
+        return StyledText::new(format!("{prefix}{}", row.thread.snippet));
+    };
+    let style = HighlightStyle {
+        color: Some(c.accent),
+        font_weight: Some(FontWeight::SEMIBOLD),
+        ..Default::default()
+    };
+    let n = prefix.len();
+    StyledText::new(format!("{prefix}{}", s.text))
+        .with_highlights(s.marks.iter().map(|m| (m.start + n..m.end + n, style)))
+}
+
 /// Tide: sender and date, then subject — snippet. 56 px.
 fn two_line(row: &Row, height: f32, c: &Colors) -> Div {
     let line1 = div()
@@ -112,7 +131,7 @@ fn two_line(row: &Row, height: f32, c: &Colors) -> Div {
                 .min_w_0()
                 .truncate()
                 .text_color(c.muted_fg)
-                .child(format!(" — {}", row.thread.snippet)),
+                .child(snippet_text(row, " — ", c)),
         );
     content(row, height, c, |d| {
         d.child(unread_dot(row, c)).child(
@@ -159,7 +178,7 @@ fn one_line(row: &Row, height: f32, c: &Colors) -> Div {
                             .min_w_0()
                             .truncate()
                             .text_color(c.muted_fg)
-                            .child(format!("  {}", row.thread.snippet)),
+                            .child(snippet_text(row, "  ", c)),
                     ),
             )
             .children(count(row, c))
@@ -214,7 +233,7 @@ fn three_line(row: &Row, height: f32, c: &Colors) -> Div {
                             .truncate()
                             .text_size(px(ui::TEXT_SM))
                             .text_color(c.muted_fg)
-                            .child(row.thread.snippet.clone()),
+                            .child(snippet_text(row, "", c)),
                     ),
             )
     })
