@@ -6,25 +6,17 @@
 
 #![windows_subsystem = "windows"]
 
-// API for Phase 1G-B (palette, toasts, status); drop the allow when it lands.
-#[allow(dead_code)]
 mod actions;
 mod assets;
 mod bench;
 mod data;
 mod events;
 mod features;
-// API for Phase 1G-B (palette, toasts, status); drop the allow when it lands.
-#[allow(dead_code)]
 mod format;
 mod gmail_adapter;
 mod preset;
-// API for Phase 1G-B (palette, toasts, status); drop the allow when it lands.
-#[allow(dead_code)]
 mod settings;
 mod single_instance;
-// API for Phase 1G-B (palette, toasts, status); drop the allow when it lands.
-#[allow(dead_code)]
 mod state;
 mod theme;
 mod tray;

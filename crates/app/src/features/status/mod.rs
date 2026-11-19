@@ -1,35 +1,166 @@
-//! Status area. Phase 1G-A stub: one line from `SyncStatus`. Phase 1G-B
-//! (commands agent) adds "Synced 12 s ago", Retry / Dismiss.
+//! Status area: "Synced 12 s ago", "Offline", "3 actions pending", and
+//! "1 action failed" with Retry / Dismiss. The shell repaints it every few
+//! seconds so the age stays current.
 
-use gpui_kit::component::ActiveTheme;
-use gpui_kit::*;
-use tidemail_db::types::AccountSyncState;
+use std::time::Duration;
 
-use crate::state::AppState;
+use gpui_kit::{prelude::FluentBuilder, *};
+use tidemail_db::types::{AccountSyncState, SyncStatus};
 
-pub fn line(state: &AppState, cx: &App) -> impl IntoElement {
-    let s = &state.status;
-    let text = if !s.failed_actions.is_empty() {
-        format!("{} action(s) failed", s.failed_actions.len())
+use crate::{format, state::AppState, theme::colors, ui};
+
+/// How often the shell repaints for the "Synced N s ago" text.
+pub const TICK: Duration = Duration::from_secs(5);
+
+fn plural(n: usize, what: &str) -> String {
+    format!("{n} {what}{}", if n == 1 { "" } else { "s" })
+}
+
+/// The status sentence. `now_ms` is the current time in epoch ms.
+pub fn text(s: &SyncStatus, now_ms: i64) -> String {
+    let any = |state| s.accounts.iter().any(|a| a.state == state);
+    if !s.failed_actions.is_empty() {
+        format!("{} failed", plural(s.failed_actions.len(), "action"))
     } else if s.pending_actions > 0 {
-        format!("{} action(s) pending", s.pending_actions)
-    } else if s
-        .accounts
-        .iter()
-        .any(|a| a.state == AccountSyncState::Offline)
-    {
+        format!("{} pending", plural(s.pending_actions as usize, "action"))
+    } else if any(AccountSyncState::Offline) {
         "Offline".into()
-    } else if s
-        .accounts
-        .iter()
-        .any(|a| a.state == AccountSyncState::Syncing)
-    {
+    } else if any(AccountSyncState::AuthError) {
+        "Sign-in needed".into()
+    } else if any(AccountSyncState::Syncing) {
         "Syncing…".into()
     } else {
-        "Up to date".into()
+        match s.accounts.iter().filter_map(|a| a.last_sync_at).max() {
+            Some(at) if now_ms - at < 5_000 => "Synced just now".into(),
+            Some(at) => format!("Synced {} ago", format::age(now_ms - at)),
+            None => "Not synced yet".into(),
+        }
+    }
+}
+
+/// One status line. With failed actions it shows Retry and Dismiss, which
+/// call the engine for every failed action (the engine reports the new
+/// status).
+pub fn line(state: &AppState, cx: &App) -> impl IntoElement {
+    let c = colors(cx);
+    let s = &state.status;
+    let failed: Vec<i64> = s.failed_actions.iter().map(|f| f.id).collect();
+    let engine = state.engine.clone();
+    let button = |id: &'static str, label: &'static str, retry: bool| {
+        let (engine, failed) = (engine.clone(), failed.clone());
+        div()
+            .id(id)
+            .px_1()
+            .rounded(px(4.))
+            .cursor_pointer()
+            .text_color(c.accent)
+            .hover(|d| d.bg(c.hover))
+            .child(label)
+            .on_click(move |_, _, cx| {
+                let (engine, failed) = (engine.clone(), failed.clone());
+                cx.background_spawn(async move {
+                    for id in failed {
+                        let result = match retry {
+                            true => engine.retry_failed(id),
+                            false => engine.dismiss_failed(id),
+                        };
+                        if let Err(e) = result {
+                            eprintln!("tidemail: action {id}: {e}");
+                        }
+                    }
+                })
+                .detach();
+            })
     };
     div()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(text)
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(ui::TEXT_XS))
+        .text_color(if failed.is_empty() {
+            c.muted_fg
+        } else {
+            c.danger
+        })
+        .child(text(s, tidemail_db::now_ms()))
+        .when(!failed.is_empty(), |d| {
+            d.child(button("status-retry", "Retry", true)).child(button(
+                "status-dismiss",
+                "Dismiss",
+                false,
+            ))
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use tidemail_db::types::{AccountSync, AccountSyncState, ActionKind, FailedAction, SyncStatus};
+
+    use super::text;
+
+    fn account(state: AccountSyncState, at: Option<i64>) -> AccountSync {
+        AccountSync {
+            account_id: 1,
+            state,
+            last_sync_at: at,
+        }
+    }
+
+    fn status(accounts: Vec<AccountSync>, pending: u32, failed: usize) -> SyncStatus {
+        SyncStatus {
+            accounts,
+            pending_actions: pending,
+            failed_actions: (0..failed)
+                .map(|i| FailedAction {
+                    id: i as i64,
+                    thread_id: 1,
+                    kind: ActionKind::Archive,
+                    error: "x".into(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn synced_age() {
+        let s = status(vec![account(AccountSyncState::Idle, Some(100_000))], 0, 0);
+        assert_eq!(text(&s, 102_000), "Synced just now");
+        assert_eq!(text(&s, 112_000), "Synced 12 s ago");
+        assert_eq!(text(&s, 100_000 + 5 * 60_000), "Synced 5 min ago");
+    }
+
+    #[test]
+    fn newest_account_counts() {
+        let s = status(
+            vec![
+                account(AccountSyncState::Idle, Some(10_000)),
+                account(AccountSyncState::Idle, Some(50_000)),
+            ],
+            0,
+            0,
+        );
+        assert_eq!(text(&s, 60_000), "Synced 10 s ago");
+    }
+
+    #[test]
+    fn priority_failed_pending_offline() {
+        let off = account(AccountSyncState::Offline, Some(1));
+        assert_eq!(text(&status(vec![off.clone()], 0, 0), 9), "Offline");
+        assert_eq!(
+            text(&status(vec![off.clone()], 3, 0), 9),
+            "3 actions pending"
+        );
+        assert_eq!(
+            text(&status(vec![off.clone()], 1, 0), 9),
+            "1 action pending"
+        );
+        assert_eq!(text(&status(vec![off.clone()], 3, 1), 9), "1 action failed");
+        assert_eq!(text(&status(vec![off], 0, 2), 9), "2 actions failed");
+    }
+
+    #[test]
+    fn never_synced() {
+        let s = status(vec![account(AccountSyncState::Idle, None)], 0, 0);
+        assert_eq!(text(&s, 9), "Not synced yet");
+    }
 }
