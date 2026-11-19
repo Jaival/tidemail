@@ -50,6 +50,8 @@ pub enum Overlay {
     },
     /// "Go to label": every label, for tabs and the rail (`g l`).
     GoPicker,
+    /// Not pushed: toasts sit in the list pane or hint bar, never over the webview (ADR 0002).
+    #[allow(dead_code)]
     Toast,
 }
 
