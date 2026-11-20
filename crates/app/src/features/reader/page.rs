@@ -16,12 +16,17 @@ pub fn css_color(c: Hsla) -> String {
 pub fn csp(load_images: bool) -> String {
     let remote = if load_images { " https:" } else { "" };
     format!(
-        "default-src 'none'; style-src 'unsafe-inline'; img-src data: {CID_ORIGIN}{remote}; font-src data:"
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data: {CID_ORIGIN}{remote}; font-src data: {CID_ORIGIN}"
     )
 }
 
+/// Path prefix under [`CID_ORIGIN`] that serves a bundled font by family name.
+pub const FONT_PATH: &str = "/font/";
+
 /// Full document for `html` (sanitized at ingest). `nonce` goes into `<title>`:
 /// the page-load handler compares it, so a late event of an older document is ignored.
+/// `code_family` (a bundled font, served from [`FONT_PATH`]) draws `code`,
+/// `pre`, `kbd`, `samp` and `tt` where the mail sets no font of its own.
 pub fn document(
     html: &str,
     nonce: u64,
@@ -29,16 +34,25 @@ pub fn document(
     paper: &str,
     ink: &str,
     font_px: f32,
+    code_family: &str,
 ) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\
          <title>{nonce}</title>\
-         <style>html{{color-scheme:light;background:{paper};color:{ink};font:{font_px}px/1.5 \"Segoe UI Variable Text\",\"Segoe UI\",sans-serif;\
-         overflow-wrap:break-word}}body{{margin:16px}}img{{max-width:100%;height:auto}}</style>\
+         <style>@font-face{{font-family:\"tidemail-code\";src:url(\"{CID_ORIGIN}{FONT_PATH}{code_url}\");font-weight:100 900}}\
+         html{{color-scheme:light;background:{paper};color:{ink};font:{font_px}px/1.5 \"Segoe UI Variable Text\",\"Segoe UI\",sans-serif;\
+         overflow-wrap:break-word}}body{{margin:16px}}img{{max-width:100%;height:auto}}\
+         code,pre,kbd,samp,tt{{font-family:\"tidemail-code\",ui-monospace,Consolas,monospace;font-size:0.92em}}</style>\
          </head><body>{html}</body></html>",
         csp = csp(load_images),
+        code_url = code_family.replace(' ', "%20"),
     )
+}
+
+/// The family a [`FONT_PATH`] request asks for.
+pub fn parse_font_path(path: &str) -> Option<String> {
+    percent_decode(path.strip_prefix(FONT_PATH)?)
 }
 
 /// Host script (`ExecuteScript` runs even with page scripts off) that puts
@@ -115,6 +129,7 @@ mod tests {
         assert!(!csp(false).contains("https:"));
         assert!(csp(true).contains("img-src data: http://tidemail-cid.localhost https:"));
         assert!(csp(false).starts_with("default-src 'none'"));
+        assert!(csp(false).ends_with("font-src data: http://tidemail-cid.localhost"));
     }
 
     #[test]
@@ -136,6 +151,10 @@ mod tests {
         assert_eq!(parse_cid_path("/x/a"), None);
         assert_eq!(parse_cid_path("/1/%zz"), None);
         assert_eq!(parse_cid_path("/1"), None);
+        // Font requests share the origin and never parse as a cid.
+        assert_eq!(parse_cid_path("/font/Obel%20Mono"), None);
+        assert_eq!(parse_font_path("/font/Obel%20Mono"), Some("Obel Mono".into()));
+        assert_eq!(parse_font_path("/42/a"), None);
     }
 
     #[test]
@@ -149,8 +168,9 @@ mod tests {
 
     #[test]
     fn document_carries_nonce_and_csp() {
-        let d = document("<p>hi</p>", 7, false, "#fff", "#000", 15.0);
+        let d = document("<p>hi</p>", 7, false, "#fff", "#000", 15.0, "Obel Mono Masked");
         assert!(d.contains("<title>7</title>"));
+        assert!(d.contains("url(\"http://tidemail-cid.localhost/font/Obel%20Mono%20Masked\")"));
         assert!(d.contains("Content-Security-Policy"));
         assert!(d.contains("<p>hi</p>"));
     }

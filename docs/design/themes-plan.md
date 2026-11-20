@@ -1,8 +1,9 @@
 # Plan: colour themes, custom accent and fonts (Phase 1G-U3)
 
-Date: 2026-11-17. Status: built 2026-11-20 on branch `phase1g-u3`, except
-the font picker and the 19 non-default fonts (only Inter and Obel Mono are
-embedded; see `docs/HANDOFF.md`, "Phase 1G-U3 status"). Board values as
+Date: 2026-11-17. Status: built 2026-11-20 on branch `phase1g-u3`; the font
+picker, the 19 non-default fonts and the reader's code font on branch
+`phase1g-u3b` (see `docs/HANDOFF.md`, "Phase 1G-U3 status" and "Phase 1G-U3b
+status"). Board values as
 built: `docs/design/themes-canvas-values.md`.
 Mockups: the "Theme options" and "Custom accent" boards on the design canvas
 (https://claude.ai/artifact/KB3eRiBLYpyWRS8SiJBpcA).

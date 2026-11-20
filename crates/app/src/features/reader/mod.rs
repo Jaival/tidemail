@@ -18,6 +18,7 @@ use tidemail_db::{
 
 use crate::{
     actions::{Archive, PickLabel, PickMove, ToggleStar, Trash},
+    fonts::Fonts,
     format,
     preset::ReaderPlacement,
     state::{AppState, StateEvent},
@@ -301,6 +302,7 @@ impl Reader {
                     if let Some(host) = self.host.as_mut().filter(|h| h.images != Some(load_images)) {
                         host.images = Some(load_images);
                         let c = colors(cx);
+                        let code = Fonts::from_settings(&self.state.read(cx).settings).code();
                         let doc = page::document(
                             &html,
                             self.nonce,
@@ -308,6 +310,7 @@ impl Reader {
                             &page::css_color(c.paper),
                             &page::css_color(c.paper_fg),
                             ui::TEXT_LG,
+                            code.family,
                         );
                         if let Err(e) = host.view.read(cx).load_html(&doc) {
                             eprintln!("tidemail: reader load_html failed: {e}");
@@ -716,13 +719,22 @@ impl Reader {
                     Some(_) => String::new(),
                     None => "Loading message…".to_string(),
                 };
+                let settings = &self.state.read(cx).settings;
+                // Plain-text mail is often code, logs or keys: the code font
+                // (and with it "Hide secrets in code"), unless switched off.
+                let mono = settings
+                    .plain_text_mono
+                    .then(|| Fonts::from_settings(settings).code().family);
                 area.child(
                     div()
                         .id("text-body")
                         .size_full()
                         .overflow_y_scroll()
                         .p_4()
-                        .text_size(px(ui::TEXT_LG))
+                        .when_some(mono, |d, family| {
+                            d.font_family(family).text_size(px(ui::TEXT_MONO))
+                        })
+                        .when(mono.is_none(), |d| d.text_size(px(ui::TEXT_LG)))
                         .child(text),
                 )
             }

@@ -11,6 +11,8 @@ use crate::theme::colors;
 pub const TEXT_XS: f32 = 11.0;
 pub const TEXT_SM: f32 = 12.0;
 pub const TEXT_LG: f32 = 15.0;
+/// Code-font body text: monospace reads larger than the interface font.
+pub const TEXT_MONO: f32 = 14.0;
 pub const TEXT_XL: f32 = 19.0;
 
 /// Icon from the asset source, e.g. `"icons/inbox.svg"`.

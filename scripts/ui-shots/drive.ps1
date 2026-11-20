@@ -1,11 +1,14 @@
 # Drive tidemail: launch on a db copy with preset+mode, run steps, screenshot.
 # Usage: drive.ps1 -Preset tide -Mode dark -Name tide-dark -Steps "wait:1500|shot:list|send:j|wait:800|shot:reader"
-# Steps: send:<SendKeys string>, text:<literal text>, wait:<ms>, shot:<name>, click:<x>,<y> (window px), fg
+# Steps: send:<SendKeys string>, text:<literal text>, wait:<ms>, shot:<name>, click:<x>,<y> (window px), fg,
+#   wheel:<x>,<y>,<notches> (window px; negative scrolls down)
 # -Colors: preset (default) | accent | a theme name (midnight, graphite, fjord, forest, rose,
 #   high-contrast, daylight, linen); used for both modes. -Accent "<hue>,<normal|muted>,<true|false>".
+# -UiFont / -MonoFont: font ids (src/fonts.rs); -PlainMono false shows plain text in the UI font.
 param([string]$Preset, [string]$Mode, [string]$Name, [string]$Steps,
       [string]$Exe = "target\release\tidemail.exe", [string]$BenchDb = "bench.db", [switch]$Fresh,
-      [string]$Colors = "preset", [string]$Accent = "268,normal,true")
+      [string]$Colors = "preset", [string]$Accent = "268,normal,true",
+      [string]$UiFont = "inter", [string]$MonoFont = "obel-mono", [string]$PlainMono = "true")
 $ErrorActionPreference = "Stop"
 $dir = "$env:TEMP\tidemail-shots\db"
 $out = "$env:TEMP\tidemail-shots\shots"
@@ -21,7 +24,8 @@ $choice = switch ($Colors) {
 }
 $hue, $chroma, $tint = $Accent.Split(",")
 $settings = "{`"theme`":`"$Mode`",`"prefetch`":10,`"preset`":`"$Preset`",`"colorsDark`":$choice,`"colorsLight`":$choice," +
-  "`"accent`":{`"hue`":$hue,`"chroma`":`"$chroma`",`"tint`":$tint}}"
+  "`"accent`":{`"hue`":$hue,`"chroma`":`"$chroma`",`"tint`":$tint}," +
+  "`"uiFont`":`"$UiFont`",`"monoFont`":`"$MonoFont`",`"plainTextMono`":$PlainMono}"
 Set-Content "$dir\settings.json" $settings
 
 Add-Type @"
@@ -33,7 +37,7 @@ public class W {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, int d, UIntPtr e);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte s, uint f, UIntPtr e);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   public struct RECT { public int L, T, R, B; }
@@ -72,6 +76,9 @@ foreach ($s in $Steps.Split("|")) {
     "click" { $x, $y = $v.Split(","); $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
               [W]::SetCursorPos($r.L + [int]$x, $r.T + [int]$y) | Out-Null; Start-Sleep -Milliseconds 80
               [W]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); [W]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 200 }
+    "wheel" { $x, $y, $n = $v.Split(","); $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
+              [W]::SetCursorPos($r.L + [int]$x, $r.T + [int]$y) | Out-Null; Start-Sleep -Milliseconds 80
+              [W]::mouse_event(0x800, 0, 0, 120 * [int]$n, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300 }
   }
 }
 Stop-Process -Id $p.Id -Force; $p.WaitForExit(10000) | Out-Null

@@ -15,7 +15,7 @@ use gpui_kit::{prelude::FluentBuilder, *};
 
 use crate::{
     actions::OpenThread,
-    fonts::{Fonts, CODE_FONTS, UI_FONTS},
+    fonts::{FontInfo, Fonts, CODE_FONTS, UI_FONTS},
     settings::{ColorChoice, Settings, ThemePref},
     state::{AppState, Overlay},
     theme::{
@@ -388,35 +388,70 @@ impl Appearance {
     }
 
     fn fonts_tab(&self, cx: &mut Context<Self>) -> Div {
+        // Each chip draws in its own font: register them all (once).
+        crate::fonts::register_all(cx);
         let c = *colors(cx);
         let f = Fonts::from_settings(&self.draft);
-        let chips = |list: &'static [crate::fonts::FontInfo], chosen: &'static crate::fonts::FontInfo| {
-            div().flex().gap(px(6.)).children(list.iter().map(move |font| {
-                let on = std::ptr::eq(font, chosen);
-                div()
-                    .h(px(30.))
-                    .px(px(12.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(6.))
-                    .border_1()
-                    .border_color(if on { c.accent } else { c.border })
-                    .when(on, |d| d.bg(c.selection))
-                    .font_family(font.family)
-                    .child(font.title)
-            }))
+        let chips = |id: &'static str,
+                         list: &'static [FontInfo],
+                         chosen: &'static FontInfo,
+                         set: fn(&mut Settings, &'static str)| {
+            let items = list
+                .iter()
+                .enumerate()
+                .map(|(ix, font)| {
+                    let on = std::ptr::eq(font, chosen);
+                    // A bare cell, like `grid`'s fillers: padding inside it
+                    // would widen the cell in a short last row.
+                    let chip = div()
+                        .id((id, ix))
+                        .w_full()
+                        .h(px(30.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(if on { c.accent } else { c.border })
+                        .when(on, |d| d.bg(c.selection))
+                        .when(!on, |d| d.hover(|s| s.bg(c.hover)))
+                        .cursor_pointer()
+                        .font_family(font.family)
+                        .on_click(cx.listener(move |this, _, w, cx| {
+                            this.edit(|s| set(s, font.id), w, cx)
+                        }))
+                        .child(div().min_w_0().truncate().child(font.title));
+                    div().flex_1().min_w_0().child(chip).into_any_element()
+                })
+                .collect();
+            grid(items, 3)
         };
+        let ui_chips = chips("appearance-ui-font", &UI_FONTS, f.ui, |s, id| {
+            s.ui_font = id.to_owned()
+        });
+        let code_chips = chips("appearance-code-font", &CODE_FONTS, f.mono, |s, id| {
+            s.mono_font = id.to_owned()
+        });
         div()
             .flex()
             .flex_col()
             .gap(px(14.))
-            .child(section("Interface font", &c).child(chips(&UI_FONTS, f.ui)))
-            .child(section("Code font", &c).child(chips(&CODE_FONTS, f.mono)))
+            .child(section("Interface font", &c).child(ui_chips))
+            .child(section("Code font", &c).child(code_chips))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(10.))
+                    .child(
+                        Switch::new("appearance-plain-mono")
+                            .checked(self.draft.plain_text_mono)
+                            .label("Show plain-text mail in the code font")
+                            .on_click(cx.listener(|this, on: &bool, w, cx| {
+                                let on = *on;
+                                this.edit(|s| s.plain_text_mono = on, w, cx)
+                            })),
+                    )
                     .when(f.can_mask(), |d| {
                         d.child(
                             Switch::new("appearance-mask")
@@ -596,7 +631,7 @@ impl Render for Appearance {
             Tab::Colours => (self.colours_tab(cx), self.readout()),
             Tab::Fonts => (
                 self.fonts_tab(cx),
-                "More fonts follow. Fonts: SIL Open Font License 1.1".to_owned(),
+                "Fonts: SIL Open Font License 1.1".to_owned(),
             ),
         };
         let max_h = window.viewport_size().height - px(72.);

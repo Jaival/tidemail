@@ -57,6 +57,8 @@ pub struct Settings {
     pub mask_secrets: bool,
     /// The interface font replaces the preset's display font (Paper's Georgia).
     pub headings_use_ui_font: bool,
+    /// Plain-text mail bodies draw in the code font (else the interface font).
+    pub plain_text_mono: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +74,7 @@ impl Default for Settings {
             mono_font: fonts::CODE_FONTS[0].id.to_owned(),
             mask_secrets: true,
             headings_use_ui_font: false,
+            plain_text_mono: true,
         }
     }
 }
@@ -117,6 +120,7 @@ impl Settings {
             mono_font: font("monoFont", &fonts::CODE_FONTS, d.mono_font),
             mask_secrets: field(v, "maskSecrets").unwrap_or(d.mask_secrets),
             headings_use_ui_font: field(v, "headingsUseUiFont").unwrap_or(d.headings_use_ui_font),
+            plain_text_mono: field(v, "plainTextMono").unwrap_or(d.plain_text_mono),
         }
     }
 

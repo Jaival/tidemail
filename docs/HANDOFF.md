@@ -276,11 +276,41 @@ Checks: `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D
 
 Rust bench: open + first page 2.6 ms, list page p95 0.20 ms, thread open p95 0.20 ms, search p95 12.8 ms, action write p95 1.07 ms (max 17.5 ms, over the 16 ms line; the check is on p95, as before). The pre-1G-U3 exe on the same day measured 328–373 ms worst cold launch, so the fonts cost nothing measurable; margin is ~80 ms.
 
-## Next: Phase 1G-U3b (fonts)
+## Phase 1G-U3b status (2026-11-20, branch `phase1g-u3b`)
 
-1. Font picker: the other 10 interface and 9 code fonts from the plan (load on demand from disk or embed; measure cold launch either way). `fonts::UI_FONTS` / `CODE_FONTS` and the Fonts tab chips already take a list.
-2. A use site for the code font in the reader (plain-text bodies, inline code); today only the Fonts tab sample uses it.
-3. Then Phase 2 as before.
+Fonts, per `docs/design/themes-plan.md` (Fonts).
+
+- **All 21 fonts embedded** (`fonts.rs`): 11 interface, 10 code. The nine new code fonts were copied unmodified from Forkline (`crates/fl-app/fonts`, `f1c06da`); licences checked (all OFL 1.1; Reserved Font Names "Plex", "Source", "Monaspace" apply only to modified versions) and listed in `crates/app/assets/fonts/README.md`. Exe 34.5 → 46.5 MB.
+- **Embed, not load from disk.** Only the chosen two fonts are registered at startup; `include_bytes!` data costs nothing until read. Measured against the 1G-U3 exe on the same machine, same hour: medians 316 ms (old) vs 321 ms (new), worst-of-3 ranges overlap. The Fonts tab registers the other 19 when it opens (`fonts::register_all`).
+- **Family names** as DirectWrite registers them: Google Sans statics are "Google Sans Text Text", Commit Mono "CommitMono 400", Monaspace Neon "Monaspace Neon Var". Tests: every family registers, every interface font has a distinct bold, every ASCII glyph of every font stays inside its line box at 11–19 px (no clipped text in fixed-height rows).
+- **Fonts tab**: two 3-column chip grids, each chip in its own font; click applies live (Esc restores, Done saves).
+- **Reader use of the code font**:
+  - Plain-text bodies (no HTML part; native GPUI text) draw in the code font at 14 px (`ui::TEXT_MONO`), so "Hide secrets in code" (Obel Mono Masked) applies there. New setting `plainTextMono` (default on), switch "Show plain-text mail in the code font".
+  - HTML mail: `code, pre, kbd, samp, tt` without their own font use the code font. The webview loads it from `http://tidemail-cid.localhost/font/<family>` (same custom protocol as `cid:` images; CORS header, CSP `font-src` adds that origin). Sender fonts still win (the Buildbot mail's outer `div` stays Consolas; its `pre` uses the chosen font). Changing the font reloads the document (SettingsChanged).
+- **Scripts**: `drive.ps1 -UiFont -MonoFont -PlainMono` and a `wheel:x,y,notches` step; `fonts.ps1` (11 interface/code pairs × 3 presets × dark/light: list, plain-text mail, HTML mail with `pre`, Fonts tab, Sample); `cropsheet.ps1` tiles one region of many shots at full size (compare fonts).
+
+Checked by screenshot (330 shots): every font in the list, plain-text reader, HTML `pre` and Fonts tab in all 3 presets, dark and light. Fixed: uneven chip widths in a short last grid row. Not exercised by screenshot: masking in the reader (no secrets in `bench.db`; covered by the unit test and the Fonts tab sample).
+
+Checks: `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (113) pass.
+
+### Bench (bench.db, 2026-11-20, after 1G-U3b, second run on the same exe, CPU ~26 % at start)
+
+| Metric | Tide | Command | Paper | Budget |
+|---|---|---|---|---|
+| cold launch, worst of 3 | 329 ms (318–329) | 332 ms (316–332) | 330 ms (321–330) | 400 ms |
+| j/k open to paint p95 | 10.8 ms | 9.0 ms | 10.1 ms | 50 ms |
+| scroll dropped / blank | 0 / 1800, 0 | 0 / 1800, 0 | 0 / 1800, 0 | ≤ 2 %, 0 |
+
+Rust bench (same session): open + first page 2.2 ms, list page p95 0.16 ms, thread open p95 0.17–0.21 ms, search p95 12.8 ms, action write p95 0.57–0.65 ms (max 15.3–16.6 ms; the check is on p95). The 1G-U3 exe right after: worst 318–361 ms, one 453 ms Tide outlier in its first run.
+
+## Next
+
+1. Phase 2 as before.
+2. Open from 1G-U3b:
+   - `plainTextMono` defaults to on (the plan listed the interface font for plain-text mail). On, because plain-text mail is where keys and logs arrive and masking only works in the code font. Flip the default if plain-text letters read worse in mono.
+   - Raw headers (the plan's other code-font use) do not exist yet; use the code font when they do.
+   - Text in the native plain-text body cannot be selected or copied (GPUI `div` text). Needed before release.
+   - Machine has Google Sans / Google Sans Code / Google Sans Flex installed system-wide; the bundled fonts share those names. Check on a clean PC that the bundled files are the ones drawn.
 
 ## Requests
 

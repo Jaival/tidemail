@@ -96,6 +96,23 @@ pub fn build(
         .with_asynchronous_custom_protocol(
             tidemail_render::CID_SCHEME.into(),
             move |_, request, responder| {
+                // The code font for `code` / `pre` (page::document). The page
+                // has an opaque origin and font loads are CORS requests.
+                if let Some(family) = page::parse_font_path(request.uri().path()) {
+                    // The first file is the regular weight (or the variable font).
+                    let response = match crate::fonts::by_family(&family) {
+                        Some(font) => Response::builder()
+                            .header(header::CONTENT_TYPE, "font/ttf")
+                            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                            .header(header::CACHE_CONTROL, "private, max-age=86400")
+                            .body(font.files[0].to_vec()),
+                        None => Response::builder().status(404).body(Vec::new()),
+                    };
+                    if let Ok(response) = response {
+                        responder.respond(response);
+                    }
+                    return;
+                }
                 let parsed = page::parse_cid_path(request.uri().path());
                 let db = db.clone();
                 executor
