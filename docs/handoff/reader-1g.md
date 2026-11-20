@@ -42,3 +42,7 @@ See the end of `docs/HANDOFF.md`.
 - Label and Move buttons dispatch `PickLabel` / `PickMove`; they do nothing until the commands agent lands the pickers.
 - WebView2 user data folder is the wry default (next to the exe), not `%LOCALAPPDATA%\Tidemail`.
 - Not checked by hand: attachment download/open (no real Gmail), the "Load images" click, link open, Paper light.
+
+## Changed by the main thread after the merge (2026-11-20)
+
+See `docs/HANDOFF.md`, "Phase 1G-B status". In short: the host is built in a spawned task outside any `App` borrow (`host::build` no longer takes `window`/`cx`; `Reader::attach_host` wraps it); the body area is a `canvas` that sets WebView2 bounds only on change; `GPUI_DISABLE_DIRECT_COMPOSITION` is gone (vendored GPUI patch instead); bodies with an unchanged image policy are swapped in with `page::swap_script` instead of a navigation. The debug j/k numbers and the DirectComposition request above are out of date. Release j/k p95 is 6.7–8.4 ms.

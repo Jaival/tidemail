@@ -60,7 +60,7 @@ Cold launch breakdown: process start to page navigation start is about 390–460
 - Decision and startup findings: `docs/adr/0001-native-ui-with-gpui.md`. `docs/SPEC.md` is updated.
 - `phase1` was fast-forwarded into local `main` (`a8cf15e`, not pushed). Work continues on branch `gpui`.
 - Pins: `gpui-kit =0.9.0` (`gpui-component` 0.9.0, `gpui-pre` 0.3.11), `gpui-webview =0.9.0` (`lb-wry` 0.53.3), `tray-icon =0.26.1`.
-- `vendor/gpui-pre-windows`: stock 0.3.11 plus `vendor/gpui-pre-windows-parallel-dx.patch` (DirectX devices on a thread during DirectWrite start). Re-apply on upgrade.
+- `vendor/gpui-pre-windows`: stock 0.3.11 plus `vendor/gpui-pre-windows-parallel-dx.patch` (DirectX devices on a thread during DirectWrite start) and `vendor/gpui-pre-windows-dcomp-not-topmost.patch` (1G-B: DirectComposition target not topmost, so the reader WebView2 child window draws above GPUI). Re-apply both on upgrade.
 
 ## Phase 1G-A status (branch `gpui`)
 
@@ -145,7 +145,36 @@ Not done in 1G-U1: `GoLabel` / `GoPicker` (the commands agent builds the picker;
 
 Rust bench: open + first page 2.2 ms, list page p95 0.17 ms, thread open p95 0.14 ms, search p95 12.8 ms, action write p95 0.9 ms. The first run after a rebuild had one Tide launch at 525 ms (new exe, as in 1G-A). Cold-launch margin is now about 30–90 ms, not 100 ms: watch it when 1G-B adds the webview and 1G-U3 adds fonts.
 
-## Next: Phase 1G-B (three Sonnet agents in worktrees, merge order reader, search, commands)
+## Phase 1G-B status (branch `phase1g-b`, done 2026-11-20)
+
+- Three Sonnet agents built reader, search and commands on `phase1g-b-{reader,search,commands}` (from `f90fa48`); merged into `phase1g-b` in that order. Area notes: `docs/handoff/{reader,search,commands}-1g.md`.
+- Merge fixes (main thread): one `Dismiss` handler on the shell (closes the top overlay, else clears an active search query); `Shell::current_row` gives pickers and `act` the search result row while a query is active; removed the `allow(dead_code)` on `AppState::overlay_open`.
+- Reader fixes after the first release bench (Command crashed; j/k p95 103–190 ms):
+  - **Crash:** WebView2 creation runs a nested message loop (`webview2_com::wait_with_pump`). Built inside an `on_next_frame` callback, it ran GPUI tasks while `App` was borrowed (`RefCell already borrowed`). `host::build` now runs in a spawned task between updates and the result is wrapped with `gpui_webview::WebView::new`. Rule: never call WebView2 creation (or anything that pumps) inside a GPUI update.
+  - **Per-frame WebView2 calls:** `gpui-webview`'s element calls `put_Bounds` and `put_IsVisible` on every prepaint. The reader draws its own `canvas` that sets bounds only when they change; visibility is `Reader::sync_visibility` only.
+  - **DirectComposition kept:** the reader agent had set `GPUI_DISABLE_DIRECT_COMPOSITION=1`. The real cause is `CreateTargetForHwnd(hwnd, topmost = true)` in GPUI, which covers child windows. Patched to `false` in the vendored crate; the env var is gone.
+  - **j/k:** a WebView2 navigation per step costs 70–190 ms. The first document, and every change of image policy, is still a full `load_html` with the CSP meta tag. Later bodies with the same policy are swapped in with a host `ExecuteScript` (`page::swap_script`: `body.innerHTML`, scroll to top, returns the nonce). Page scripts stay off; the meta CSP stays in force after the DOM changes. `shown()` waits for the script callback (or the page-load event after a navigation). Settings changes force a full navigation (page colours live in the head).
+- Checked by screenshot (Tide dark, release): j swaps the body, the `cid:` image loads after a swap.
+- `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` pass.
+
+### Bench (bench.db, 2026-11-20, second run on the same exe)
+
+| Metric | Tide | Command | Paper | Budget |
+|---|---|---|---|---|
+| cold launch, worst of 3 | 278 ms (272–278) | 276 ms (273–276) | 290 ms (271–290) | 400 ms |
+| j/k open to paint p95 (incl. webview body) | 8.4 ms | 6.7 ms | 8.0 ms | 50 ms |
+| scroll dropped / blank | 0 / 1800, 0 | 0 / 1800, 0 | 0 / 1800, 0 | ≤ 2 %, 0 |
+
+Rust bench: open + first page 1.9 ms, list page p95 0.12 ms, thread open p95 0.23 ms, search p95 10.4 ms, action write p95 0.48 ms. The first run after a rebuild again had one Tide launch at 507 ms (new exe). Earlier the same day the machine was busy: the 1G-U1 exe itself measured up to 333 ms cold and dropped 600–827 scroll frames, so compare runs on a quiet machine only. A startup trace showed `main` is reached at ~25 ms and the first frame at ~280 ms, as in 1G-U1: WebView2 is not on the cold-launch path.
+
+### Not checked (needs a person or a scripted pass in 1G-U2)
+
+- Overlays (palette, pickers) and toasts in 3 presets × 2 modes; that the webview hides under them; focus return after Esc.
+- Search by real typing: `/` leaves no "/" in the input; Esc/Enter return focus; highlight colours.
+- Reader: attachment download/open, "Load images" click, link open in the browser, Paper light.
+- Ctrl+K and Ctrl+Z do nothing while the search input has focus (context `TidemailSearch` has no bindings).
+
+## Phase 1G-B plan (as briefed; done)
 
 Additions to the briefs below, from the presets decision:
 
@@ -154,7 +183,6 @@ Additions to the briefs below, from the presets decision:
 - **Search:** the shell places `search::slot` (title bar in Tide, replaces the tabs in Command, top of the list in Paper). Results use the row renderer of the active preset.
 - **Commands:** palette entries "Layout: Tide / Command / Paper" (`set_preset`); `GoPicker` (all labels, `g l`) sharing the list widget of the label picker; toast host at the bottom of the list pane (Tide, Paper) or in the hint bar (Command), never over the webview.
 
-Then **Phase 1G-U2** (main thread): visual pass by screenshot, 3 presets × 2 modes × (list, reader, palette, empty, error), then the full bench.
 
 1. **Reader** (`features/reader`): `gpui-webview` host created after the first frame and kept warm; `with_javascript_disabled`, no devtools/context menu/zoom/drag-drop; `load_html` of `bodies.html_sanitized` with the CSP meta tag; `tidemail-cid` custom protocol from `tidemail_render::load_cid`; navigation and new-window handlers open `http`/`https`/`mailto` in the default app and cancel everything else; "Load images" per sender (`write::set_sender_images`); plain-text fallback; attachments (download via `engine.download_attachment`, open with the default app); hide the webview while `overlay_open()`; `focus_parent()` after clicks; `shown()` true only after the webview content loaded (bench must include the body paint).
 2. **Search** (`features/search`): `gpui-component` input in the title-bar slot, `/` focuses it, per-keystroke `tidemail_search::search` on the background executor (drop stale results), results list replacing the thread list while a query is active, `<mark>` snippets rendered as highlighted runs, Escape clears.
@@ -170,6 +198,7 @@ Then Phase 2 as before.
 
 ## Open decisions
 
+- WebView2 user data folder: still the wry default (next to the exe). Move it under `%LOCALAPPDATA%\Tidemail` before the app is installed anywhere else; decide whether the cache is kept between runs.
 
 - Google OAuth client setup is required before account sync can be exercised.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
@@ -184,10 +213,16 @@ Obel Mono, replacing Segoe UI Variable), with a "Hide secrets in code"
 switch (Obel Mono's masking).
 Colour becomes separate from the layout preset; ADR 0003 will amend ADR 0002.
 
+## Next: Phase 1G-U2 (main thread, new thread)
+
+Visual pass by screenshot, 3 presets × 2 modes × (list, reader, palette, pickers, toasts, search results, empty, error), plus the "Not checked" list in the 1G-B status above. Then the full `bench-all` (on a quiet machine, second run on the same exe). After that, 1G-U3 (themes, accent, fonts; `docs/design/themes-plan.md`). Watch cold launch when 1G-U3 adds fonts: margin is about 110 ms.
+
+Screenshot recipe used in 1G-B: start the release exe on a copy of `bench.db`, find its top-level window by process id, send keys with `PostMessage` (`WM_KEYDOWN`/`WM_CHAR`/`WM_KEYUP`) and capture with `PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT)`; a screen copy catches whatever window is in front. Run PowerShell DPI-aware, or the capture is cropped.
+
 ## Requests
 
-### From the reader agent (1G-B)
+### From the reader agent (1G-B): resolved
 
-1. **DirectComposition off (applied in `main.rs`, please review).** With the GPUI DirectComposition swap chain the WebView2 child window is never visible (page loads, bounds are right, nothing shows). Checked by screenshot: `GPUI_DISABLE_DIRECT_COMPOSITION=1` shows it, `0` does not. `main.rs` sets the variable before GPUI starts. Check cold launch and scroll in the release bench; if they regress, the alternative is a separate popup window for the webview.
-2. **`Reader::new(state, window, cx)`** (was `(state, cx)`): the host is scheduled from the constructor. Only `shell/mod.rs` calls it.
-3. **jk budget:** `shown()` now waits for the WebView2 page load; debug p95 is 99-157 ms. If the release bench misses 50 ms, option: count the title event (earlier than page load) as shown.
+1. DirectComposition off: replaced by the vendored `topmost = false` patch (see 1G-B status).
+2. `Reader::new(state, window, cx)`: accepted.
+3. j/k budget: solved by swapping bodies in place, not by counting the title event.

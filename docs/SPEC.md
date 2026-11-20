@@ -124,7 +124,7 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
 
 **Phase 1G-U1 – Presets foundation (main thread, Opus), before 1G-B:** `preset.rs`, palettes, shared `ui.rs` primitives, navigation model with unread counts and its three renderers, three row renderers, shell layout per preset, selection/reading split, bench per preset. Steps in `docs/HANDOFF.md`.
 
-**Phase 1G-B – Three parallel agents** (Sonnet delegates, each in its own git worktree, against the fake mailbox). Each agent reads `PresetSpec` and the palette; none hard-codes a layout or a colour:
+**Phase 1G-B – Three parallel agents – done 2026-11-20** (see `docs/HANDOFF.md`) (Sonnet delegates, each in its own git worktree, against the fake mailbox). Each agent reads `PresetSpec` and the palette; none hard-codes a layout or a colour:
 1. **Reader** (`features/reader`): webview host, scripts off, warm reuse, CSP, `tidemail-cid` protocol, link interception, image blocking + sender prefs, attachments open/save, hide-under-overlay, plain-text fallback, j/k in the bench.
 2. **Search** (`features/search`): input, per-keystroke results via `tidemail-search`, highlighted snippets, `/` shortcut slot.
 3. **Commands** (`features/palette`, `features/status`): Ctrl+K palette with shortcuts listed, all keyboard shortcuts, label/move pickers, undo toasts (Ctrl+Z, 5 s), status area, prefetch setting.
