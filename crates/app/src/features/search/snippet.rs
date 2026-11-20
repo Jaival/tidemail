@@ -29,8 +29,14 @@ pub fn parse(html: &str) -> Snippet {
             rest = r;
         } else {
             let ch = rest.chars().next().expect("non-empty");
-            out.text.push(ch);
             rest = &rest[ch.len_utf8()..];
+            // Body text has line breaks; a row shows one line, so every
+            // whitespace run becomes one space.
+            if !ch.is_whitespace() {
+                out.text.push(ch);
+            } else if !out.text.ends_with(' ') {
+                out.text.push(' ');
+            }
         }
     }
     out
@@ -73,6 +79,13 @@ mod tests {
         assert_eq!(s.text, "… é");
         assert_eq!(&s.text[s.marks[0].clone()], "é");
         assert!(parse("plain").marks.is_empty());
+    }
+
+    #[test]
+    fn whitespace_runs_become_one_space() {
+        let s = parse("Item Qty\r\n\n  Price <mark>budget</mark>\tend");
+        assert_eq!(s.text, "Item Qty Price budget end");
+        assert_eq!(&s.text[s.marks[0].clone()], "budget");
     }
 
     #[test]

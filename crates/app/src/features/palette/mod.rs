@@ -24,6 +24,10 @@ use crate::{
 
 type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 
+const ROW_HEIGHT: f32 = 32.;
+/// Rows shown before the list scrolls; the half row shows there is more.
+const VISIBLE_ROWS: f32 = 10.5;
+
 /// One row of a picker.
 pub struct Item {
     label: SharedString,
@@ -157,7 +161,7 @@ impl Picker {
         let c = colors(cx);
         div()
             .id(("pick", ix as u64))
-            .h(px(32.))
+            .h(px(ROW_HEIGHT))
             .flex_none()
             .mx_1()
             .px_2()
@@ -207,7 +211,6 @@ impl Render for Picker {
         let panel = div()
             .id("picker")
             .w(px(560.))
-            .max_h(px(440.))
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -234,8 +237,9 @@ impl Render for Picker {
             .child(
                 div()
                     .id("picker-items")
-                    .flex_1()
-                    .min_h_0()
+                    // The list itself is capped: a `max_h` on the panel did not
+                    // limit it, and the last row drew past the panel's edge.
+                    .max_h(px(ROW_HEIGHT * VISIBLE_ROWS + 8.))
                     .py_1()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
@@ -258,6 +262,8 @@ impl Render for Picker {
                 .occlude()
                 .flex()
                 .justify_center()
+                // Not stretched: the panel is as tall as its items.
+                .items_start()
                 .pt(px(72.))
                 .bg(black().opacity(0.25))
                 .on_mouse_down(

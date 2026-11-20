@@ -647,7 +647,7 @@ impl Reader {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.open_attachment(id, &name, cx)
                                 }))
-                                .child(ui::icon("icons/download.svg", 14., c.muted_fg))
+                                .child(ui::icon("icons/paperclip.svg", 14., c.muted_fg))
                                 .child(a.filename.clone())
                                 .child(
                                     div()
@@ -675,6 +675,9 @@ impl Reader {
             .min_h_0()
             .rounded(cx.theme().radius)
             .overflow_hidden()
+            // Paper is close to the light backgrounds (Paper light): an edge.
+            .border_1()
+            .border_color(c.border)
             .bg(c.paper)
             .text_color(c.paper_fg);
         match (&self.host, self.html_mode) {
@@ -744,23 +747,24 @@ impl Render for Reader {
             .iter()
             .find(|m| Some(m.id) == self.expanded)
             .cloned();
+        // Header and body share one centred column (Command's reader is full width).
         div()
             .size_full()
             .flex()
-            .flex_col()
-            .child(self.header(&detail, cx))
+            .justify_center()
             .child(
                 div()
-                    .flex_1()
-                    .min_h_0()
+                    .size_full()
+                    .max_w(px(COLUMN_MAX + 32.))
                     .flex()
-                    .justify_center()
-                    .px_4()
-                    .pb_4()
+                    .flex_col()
+                    .child(self.header(&detail, cx))
                     .child(
                         div()
-                            .size_full()
-                            .max_w(px(COLUMN_MAX))
+                            .flex_1()
+                            .min_h_0()
+                            .px_4()
+                            .pb_4()
                             .flex()
                             .flex_col()
                             .child(self.strip(&detail, cx))

@@ -34,8 +34,8 @@ pub fn document(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\
          <title>{nonce}</title>\
-         <style>html{{background:{paper};color:{ink};font:{font_px}px/1.5 \"Segoe UI Variable Text\",\"Segoe UI\",sans-serif;\
-         overflow-wrap:anywhere}}body{{margin:16px}}img{{max-width:100%;height:auto}}</style>\
+         <style>html{{color-scheme:light;background:{paper};color:{ink};font:{font_px}px/1.5 \"Segoe UI Variable Text\",\"Segoe UI\",sans-serif;\
+         overflow-wrap:break-word}}body{{margin:16px}}img{{max-width:100%;height:auto}}</style>\
          </head><body>{html}</body></html>",
         csp = csp(load_images),
     )

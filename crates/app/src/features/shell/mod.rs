@@ -203,10 +203,12 @@ impl Render for Shell {
         let theme = cx.theme();
         let spec = self.state.read(cx).spec();
         let mut context = KeyContext::default();
-        // While the search input has focus the single-key bindings must not
-        // match: the shell context is replaced by one without bindings.
-        context.add(if self.search.read(cx).focused {
-            "TidemailSearch"
+        // While a picker or the search input has focus the single-key
+        // bindings must not match: the shell context is replaced.
+        context.add(if self.picker.is_some() {
+            PICKER_CONTEXT
+        } else if self.search.read(cx).focused {
+            SEARCH_CONTEXT
         } else {
             CONTEXT
         });
@@ -243,11 +245,19 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                // Command: results take the reader's place, so leave the reader.
+                let s = this.state.read(cx);
+                if s.spec().reader == ReaderPlacement::Replace && s.reading {
+                    this.state.update(cx, |s, cx| s.close_reader(cx));
+                }
                 this.search.update(cx, |s, cx| s.focus(window, cx))
             }))
-            .on_action(cx.listener(|this, _: &CloseReader, _, cx| {
-                // Esc with an overlay open closes the overlay, not the reader.
-                if !this.dismiss(cx) {
+            .on_action(cx.listener(|this, _: &CloseReader, window, cx| {
+                // Esc peels one layer: overlay, then search query, then reader.
+                if this.dismiss(cx) {
+                } else if this.results(cx).is_some() {
+                    this.search.update(cx, |s, cx| s.clear(window, cx))
+                } else {
                     this.state.update(cx, |s, cx| s.close_reader(cx))
                 }
             }))
@@ -441,6 +451,8 @@ impl Shell {
                         div()
                             .px_4()
                             .py_2()
+                            .border_t_1()
+                            .border_color(c.border)
                             .child(crate::features::status::line(s, cx)),
                     )
                 }),

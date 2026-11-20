@@ -26,6 +26,12 @@ actions!(
 
 /// Key context of the shell root; all bindings apply inside it.
 pub const CONTEXT: &str = "Tidemail";
+/// Shell root context while the search input has focus: no single-key
+/// bindings, so letters reach the input.
+pub const SEARCH_CONTEXT: &str = "TidemailSearch";
+/// Shell root context while a picker is open: only the keys a picker uses,
+/// so letters reach its filter input.
+pub const PICKER_CONTEXT: &str = "TidemailPicker";
 /// Added to the shell root's context while the reader is open.
 pub const READING: &str = "reading";
 
@@ -71,5 +77,11 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Dismiss, c),
         // After Dismiss: at equal depth the later binding wins.
         KeyBinding::new("escape", CloseReader, Some("Tidemail && reading")),
+        KeyBinding::new("ctrl-k", CommandPalette, Some(SEARCH_CONTEXT)),
+        KeyBinding::new("down", SelectNext, Some(PICKER_CONTEXT)),
+        KeyBinding::new("up", SelectPrev, Some(PICKER_CONTEXT)),
+        KeyBinding::new("enter", OpenThread, Some(PICKER_CONTEXT)),
+        KeyBinding::new("escape", Dismiss, Some(PICKER_CONTEXT)),
+        KeyBinding::new("ctrl-k", CommandPalette, Some(PICKER_CONTEXT)),
     ]);
 }

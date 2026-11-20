@@ -13,6 +13,7 @@ use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, Win32Wind
 use windows_sys::Win32::Foundation::HWND;
 use webview2_com::FocusChangedEventHandler;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 use wry::{
     http::{header, Response},
     NewWindowResponse, PageLoadEvent, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
@@ -121,14 +122,30 @@ pub fn build(
 
     let webview = builder.build_as_child(&Parent(parent))?;
     // A click in the page moves Win32 focus into WebView2; give it back so
-    // j/k and the shortcuts keep working in GPUI.
+    // j/k and the shortcuts keep working in GPUI. Not inside the handler:
+    // WebView2 takes focus again after it returns (checked by screenshot), so
+    // a zero-delay thread timer does it once the click is handled.
+    FOCUS_PARENT.set(parent);
     let mut token = 0i64;
     unsafe {
         let handler = FocusChangedEventHandler::create(Box::new(move |_, _| {
-            SetFocus(parent);
+            SetTimer(std::ptr::null_mut(), 0, 0, Some(refocus));
             Ok(())
         }));
         webview.controller().add_GotFocus(&handler, &mut token)?;
     }
     Ok((webview, swapped, loaded))
+}
+
+thread_local! {
+    /// The GPUI window the reader lives in (one per process).
+    static FOCUS_PARENT: Cell<HWND> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Thread-timer callback: focus back to the GPUI window, once.
+unsafe extern "system" fn refocus(_: HWND, _: u32, id: usize, _: u32) {
+    unsafe {
+        KillTimer(std::ptr::null_mut(), id);
+        SetFocus(FOCUS_PARENT.get());
+    }
 }

@@ -167,12 +167,47 @@ Rust bench: open + first page 2.2 ms, list page p95 0.17 ms, thread open p95 0.1
 
 Rust bench: open + first page 1.9 ms, list page p95 0.12 ms, thread open p95 0.23 ms, search p95 10.4 ms, action write p95 0.48 ms. The first run after a rebuild again had one Tide launch at 507 ms (new exe). Earlier the same day the machine was busy: the 1G-U1 exe itself measured up to 333 ms cold and dropped 600–827 scroll frames, so compare runs on a quiet machine only. A startup trace showed `main` is reached at ~25 ms and the first frame at ~280 ms, as in 1G-U1: WebView2 is not on the cold-launch path.
 
-### Not checked (needs a person or a scripted pass in 1G-U2)
+### Not checked after 1G-B (all checked in 1G-U2, see below)
 
 - Overlays (palette, pickers) and toasts in 3 presets × 2 modes; that the webview hides under them; focus return after Esc.
 - Search by real typing: `/` leaves no "/" in the input; Esc/Enter return focus; highlight colours.
 - Reader: attachment download/open, "Load images" click, link open in the browser, Paper light.
 - Ctrl+K and Ctrl+Z do nothing while the search input has focus (context `TidemailSearch` has no bindings).
+
+## Phase 1G-U2 status (branch `phase1g-u2`, done 2026-11-20, not committed)
+
+Visual pass by screenshot: 3 presets × 2 modes × 17 states (list, reader, palette, Esc back, label / move / go pickers, toast, undo, search results, Ctrl+K in search, Esc from search, j after Esc, no results, Drafts via `g l`, odd query `"a*(`, Spam). Scripts: `scripts/ui-shots/` (see "Screenshot recipe" below).
+
+Fixed:
+
+- **Pickers typed into the shell.** While a picker's input had focus, the shell's single-key bindings still matched (`Tidemail` is an ancestor context): typing "drafts" in Go to label also starred the thread (`s`), and `e` would archive. The shell root context is now `TidemailPicker` while a picker is open, with only up / down / Enter / Esc / Ctrl+K bound (`actions::PICKER_CONTEXT`).
+- **Ctrl+K in search** opens the palette (`ctrl-k` bound in `TidemailSearch`). Ctrl+Z stays unbound there on purpose: it is the input's own undo.
+- **Esc peels one layer** (`CloseReader` handler): overlay, then the search query, then the reader. Before, with the reader open (always in Tide / Paper), Esc closed the reader and left the query.
+- **Command: `/` while reading** closes the reader, so the results (which take the reader's place) are visible.
+- **Search snippets** carried body line breaks: rows grew a third line (Tide) or overlapped the next row (Paper). `snippet::parse` collapses whitespace runs; test added.
+- **Picker panel** always opened at full height (the backdrop stretched it); the last row drew past the panel edge. Backdrop `items_start`, list capped at 10.5 rows (`VISIBLE_ROWS`).
+- **Reader:** header and body share one centred 760 px column (Command's full-width reader had the subject at the window edge); body has a 1 px border (paper vanished on Paper light); attachment chip had no icon (`download.svg` is not in the gpui-kit default set; Lucide `paperclip.svg` added); mail CSS `overflow-wrap:anywhere` broke table cells inside words ("Pric e", "$45. 40"), now `break-word`; `color-scheme:light` so the WebView2 scrollbar matches the paper surface when Windows is dark.
+- **Focus after a click in the mail body** did not return: `SetFocus(parent)` inside WebView2's `GotFocus` is undone when WebView2 finishes the click. It now runs from a zero-delay thread timer (`host::refocus`). j works after a click (checked).
+- **Paper:** status line at the bottom of the list has a top border (the cut-off last row ran into it).
+- **Guard:** `assets::tests::every_icon_in_the_source_loads` fails when an `"icons/….svg"` literal in `src/` is missing from the asset source (missing icons draw nothing, with no error).
+
+Checked and fine as is: webview hides under every overlay (the paper area shows dimmed under the backdrop); focus returns to the shell after Esc from pickers and search (j works); `/` leaves no "/" in the input; highlight colours in all presets; toasts at the bottom of the list (Tide, Paper) and in the hint bar (Command); "Load images" click hides the button and reloads the body; "View your order" opens the default browser (window "fabrikam.example") and the reader stays; attachment click without `config.toml` shows "Download failed: config: cannot read …" under the sender (the open path itself still needs real Gmail); "N actions failed · Retry · Dismiss" status in red in all presets; "No results" and empty reader ("Select a thread") states.
+
+Checks: `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` pass.
+
+### Bench (bench.db, 2026-11-20, after 1G-U2, second run on the same exe)
+
+| Metric | Tide | Command | Paper | Budget |
+|---|---|---|---|---|
+| cold launch, worst of 3 | 327 ms (299–327) | 343 ms (299–343) | 327 ms (305–327) | 400 ms |
+| j/k open to paint p95 | 10.8 ms | 9.0 ms | 10.8 ms | 50 ms |
+| scroll dropped / blank | 0 / 1800, 0 | 0 / 1800, 0 | 0 / 1800, 0 | ≤ 2 %, 0 |
+
+Rust bench: open + first page 2.1 ms, list page p95 0.12 ms, thread open p95 0.13 ms, search p95 11.5 ms, action write p95 0.66 ms. The first run (new exe) had one Tide launch at 540 ms and 19 dropped scroll frames, as before. Cold launch is ~40–60 ms above the 1G-B numbers (278–290 ms); no change in 1G-U2 is on the startup path, and the machine sat at ~15 % CPU before the run, so treat the margin as ~55 ms until a quiet-machine rerun says otherwise.
+
+### Screenshot recipe (1G-U2)
+
+`scripts/ui-shots/drive.ps1` (run from the repo root, pwsh 7 works): copies `bench.db` to `%TEMP%\tidemail-shots\db` (`-Fresh`; otherwise reuses it, so actions accumulate), writes `settings.json` (preset, theme), starts the exe, resizes the window to 1440 × 900 after it settles, brings it to the front and runs `-Steps "wait:ms|send:<SendKeys>|text:<literal>|click:x,y|shot:name"`. Keys go through `SendKeys` (real input, so Ctrl+K / Ctrl+Z work); the window must stay in front, so do not use the machine while it runs, and never run two passes at once (two threads did on 2026-11-20 and their keys crossed). Shots use `PrintWindow(PW_RENDERFULLCONTENT)`. `all.ps1` is the full 17-state pass per combination; `sheet.ps1` makes a contact sheet; `crop.ps1` zooms; `titles.ps1` lists window titles (link-open check).
 
 ## Phase 1G-B plan (as briefed; done)
 
@@ -203,6 +238,11 @@ Then Phase 2 as before.
 - Google OAuth client setup is required before account sync can be exercised.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
 - Phase 4 projects/classification remain intentionally undesigned.
+- From 1G-U2:
+  - Ctrl+Z while the search input has focus is the input's undo, not the toast's undo. Keep, or bind `Undo` in `TidemailSearch`?
+  - Attachment errors show the raw engine text ("Download failed: config: cannot read C:\...\config.toml …"). Fine for development; give it a user-facing message before release.
+  - Under an overlay the webview is hidden and the paper area shows blank (dimmed). A snapshot of the page would look better; WebView2 `CapturePreview` costs a capture per overlay open. Not done.
+  - One unexplained stray Archive during the scripted pass (Tide light, after a run that clicked "Load images" and pressed k): not reproduced in a replay or in any later run. Cause unknown (scripted input runs through the real keyboard queue, so outside input can reach the app); watch for it.
 
 ## After 1G-U2: colour themes (planned 2026-11-17, nothing built yet)
 
@@ -213,11 +253,11 @@ Obel Mono, replacing Segoe UI Variable), with a "Hide secrets in code"
 switch (Obel Mono's masking).
 Colour becomes separate from the layout preset; ADR 0003 will amend ADR 0002.
 
-## Next: Phase 1G-U2 (main thread, new thread)
+## Next: Phase 1G-U3 (main thread, new thread)
 
-Visual pass by screenshot, 3 presets × 2 modes × (list, reader, palette, pickers, toasts, search results, empty, error), plus the "Not checked" list in the 1G-B status above. Then the full `bench-all` (on a quiet machine, second run on the same exe). After that, 1G-U3 (themes, accent, fonts; `docs/design/themes-plan.md`). Watch cold launch when 1G-U3 adds fonts: margin is about 110 ms.
+Themes, accent and fonts per `docs/design/themes-plan.md` (ADR 0003 amends ADR 0002). Re-run the full screenshot pass (`scripts/ui-shots/all.ps1`) for every theme it adds, and `bench-all` at the end. Watch cold launch when fonts are added: the 1G-U2 margin is about 55 ms (machine not fully quiet; rerun first on a quiet machine to know the real baseline).
 
-Screenshot recipe used in 1G-B: start the release exe on a copy of `bench.db`, find its top-level window by process id, send keys with `PostMessage` (`WM_KEYDOWN`/`WM_CHAR`/`WM_KEYUP`) and capture with `PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT)`; a screen copy catches whatever window is in front. Run PowerShell DPI-aware, or the capture is cropped.
+1G-U2 (done) used the recipe under "Screenshot recipe (1G-U2)" above. The 1G-B recipe (`PostMessage` of `WM_KEYDOWN`/`WM_CHAR`) cannot send Ctrl chords, because GPUI reads modifier state from the keyboard.
 
 ## Requests
 
