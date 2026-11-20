@@ -126,7 +126,9 @@ impl Render for Search {
             .flex()
             .items_center()
             .rounded(theme.radius)
-            .bg(theme.input)
+            .bg(crate::theme::colors(cx).field)
+            .border_1()
+            .border_color(theme.input)
             .text_size(px(ui::TEXT_SM + 1.))
             // The input propagates Escape (it has nothing to dismiss).
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
@@ -267,7 +269,7 @@ impl Results {
                     thread: &hit.thread,
                     selected: state.selected == Some(hit.thread.id),
                     account,
-                    display_font: spec.display_font,
+                    display_font: state.display_font(),
                     snippet: Some(&hit.snippet),
                 };
                 let id = hit.thread.id;

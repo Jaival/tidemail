@@ -1,7 +1,8 @@
-# sheet.ps1 <prefix> <out> [cols] [scale]: grid of shots matching prefix*.png, labelled.
-param([string]$Prefix, [string]$Out, [int]$Cols = 2, [double]$Scale = 0.5)
+# sheet.ps1 <prefix> <out> [cols] [scale] [-Match regex]: grid of shots matching prefix*.png
+# (and the regex, if given), labelled.
+param([string]$Prefix, [string]$Out, [int]$Cols = 2, [double]$Scale = 0.5, [string]$Match = "")
 Add-Type -AssemblyName System.Drawing
-$files = Get-ChildItem "$env:TEMP\tidemail-shots\shots\$Prefix*.png" | Where-Object { $_.Name -notmatch 'crop' } | Sort-Object Name
+$files = Get-ChildItem "$env:TEMP\tidemail-shots\shots\$Prefix*.png" | Where-Object { $_.Name -notmatch 'crop' -and (-not $Match -or $_.Name -match $Match) } | Sort-Object Name
 $first = [System.Drawing.Bitmap]::FromFile($files[0].FullName)
 $w = [int]($first.Width * $Scale); $h = [int]($first.Height * $Scale); $first.Dispose()
 $rows = [math]::Ceiling($files.Count / $Cols)

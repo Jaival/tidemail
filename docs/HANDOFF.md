@@ -174,7 +174,7 @@ Rust bench: open + first page 1.9 ms, list page p95 0.12 ms, thread open p95 0.2
 - Reader: attachment download/open, "Load images" click, link open in the browser, Paper light.
 - Ctrl+K and Ctrl+Z do nothing while the search input has focus (context `TidemailSearch` has no bindings).
 
-## Phase 1G-U2 status (branch `phase1g-u2`, done 2026-11-20, not committed)
+## Phase 1G-U2 status (branch `phase1g-u2`, done 2026-11-20, commit b6a95dd)
 
 Visual pass by screenshot: 3 presets × 2 modes × 17 states (list, reader, palette, Esc back, label / move / go pickers, toast, undo, search results, Ctrl+K in search, Esc from search, j after Esc, no results, Drafts via `g l`, odd query `"a*(`, Spam). Scripts: `scripts/ui-shots/` (see "Screenshot recipe" below).
 
@@ -243,21 +243,44 @@ Then Phase 2 as before.
   - Attachment errors show the raw engine text ("Download failed: config: cannot read C:\...\config.toml …"). Fine for development; give it a user-facing message before release.
   - Under an overlay the webview is hidden and the paper area shows blank (dimmed). A snapshot of the page would look better; WebView2 `CapturePreview` costs a capture per overlay open. Not done.
   - One unexplained stray Archive during the scripted pass (Tide light, after a run that clicked "Load images" and pressed k): not reproduced in a replay or in any later run. Cause unknown (scripted input runs through the real keyboard queue, so outside input can reach the app); watch for it.
+- From 1G-U3:
+  - Account dot colours are unchanged: amber `#f5a524` is 1.8:1 on Daylight / Linen (and on the light presets), violet `#6e56cf` 2.9:1 on Fjord. Each dot sits next to the account name, so not fixed; pick darker light-mode variants if it matters.
+  - A red custom accent looks like danger (as in Forkline). Allowed; no warning shown.
+  - Text size is not a setting yet (`theme::FONT_SIZE`).
+  - The preset colour tweaks above change ADR 0002 values by a few percent of lightness; ADR 0003 notes it.
 
-## After 1G-U2: colour themes (planned 2026-11-17, nothing built yet)
+## Phase 1G-U3 status (2026-11-20, branch `phase1g-u3`)
 
-Plan: `docs/design/themes-plan.md` (Phase 1G-U3). Eight built-in themes plus a
-custom accent the user picks, from which the rest of the palette is derived,
-and a choice of eleven interface and ten code fonts (defaults Inter and
-Obel Mono, replacing Segoe UI Variable), with a "Hide secrets in code"
-switch (Obel Mono's masking).
-Colour becomes separate from the layout preset; ADR 0003 will amend ADR 0002.
+Colour themes, custom accent and the two default fonts, per `docs/design/themes-plan.md` and ADR 0003 (amends ADR 0002). Board values as built: `docs/design/themes-canvas-values.md`.
 
-## Next: Phase 1G-U3 (main thread, new thread)
+- **Colour choice per mode** (`settings.rs`): `colorsDark` / `colorsLight` = `{"kind": "preset"}` (default), `{"kind": "theme", "name": "<theme>"}` or `{"kind": "accent"}`, plus `accent: {hue, chroma: "normal" | "muted", tint}`. Settings load field by field: an unknown value falls back to its default and keeps the rest.
+- **Themes** (`theme/themes.rs`): Midnight, Graphite, Fjord, Forest, Rosé, High contrast (dark); Daylight, Linen (light). Board HSL values; the board has no danger colour, so each mode gets one. Changes from the board: Midnight text on accent is dark (white was 3.4:1); Daylight and Linen stars are darker (38 % L) to reach 3:1.
+- **Custom accent** (`theme/derive.rs`): OKLCH from hue, chroma and tint; text, muted text, accent, warning and danger are moved in lightness until they pass the contrast rules (`theme/tests.rs` checks every hue in steps of 5, both chromas, tint on/off, both modes). 12 swatches plus a hue slider.
+- **Preset colours tweaked to pass the same rules** (ADR 0002 values): Tide dark muted `8f9fa4`, Tide light accent `0b7f74`, Tide/Command light warning `b47a0e`, Paper light warning `a06f12` and muted `6e5f52`, Command dark muted `9090a5`, Command light danger `c23535`.
+- **Fonts** (`fonts.rs`): Inter (UI) and Obel Mono (code) embedded and registered at startup; "Hide secrets in code" uses the Obel Mono Masked build (a family, because GPUI applies font features to every run below an element); "Use my font for headings too" drops the preset display font (Paper's Georgia).
+- **Appearance overlay** (`features/appearance`): Ctrl+K "Theme…", "Accent colour…", "Fonts…". Colours tab (mode, which mode to edit, cards, swatches, slider, switches, contrast readout in the footer) and Fonts tab (two chips for now, switches, sample). Live preview; Esc / Cancel restores, Done / Enter saves.
+- **Search field** fill is the border colour, or the pane colour with a border outline where the placeholder would not read (High contrast).
+- **Scripts**: `drive.ps1 -Colors <preset | accent | theme> -Accent "hue,chroma,tint"`; `themes.ps1` (14 combinations × 3 presets × list, reader, toast, search, Appearance, after Esc); `sheet.ps1 -Match <regex>`.
 
-Themes, accent and fonts per `docs/design/themes-plan.md` (ADR 0003 amends ADR 0002). Re-run the full screenshot pass (`scripts/ui-shots/all.ps1`) for every theme it adds, and `bench-all` at the end. Watch cold launch when fonts are added: the 1G-U2 margin is about 55 ms (machine not fully quiet; rerun first on a quiet machine to know the real baseline).
+Checked by screenshot (252 shots, `themes.ps1`): every theme in its mode and accents 268 / 150 muted / 25 untinted in both modes, in all three presets. Fixed: Appearance panel stayed after Esc, contrast readout below the fold, white slider fill, High contrast grey search field.
 
-1G-U2 (done) used the recipe under "Screenshot recipe (1G-U2)" above. The 1G-B recipe (`PostMessage` of `WM_KEYDOWN`/`WM_CHAR`) cannot send Ctrl chords, because GPUI reads modifier state from the keyboard.
+Checks: `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` pass.
+
+### Bench (bench.db, 2026-11-20, after 1G-U3, second run on the same exe, CPU ~7–14 %)
+
+| Metric | Tide | Command | Paper | Budget |
+|---|---|---|---|---|
+| cold launch, worst of 3 | 317 ms (314–317) | 321 ms (311–321) | 321 ms (312–321) | 400 ms |
+| j/k open to paint p95 | 14.2 ms | 10.0 ms | 10.5 ms | 50 ms |
+| scroll dropped / blank | 0 / 1800, 0 | 0 / 1800, 0 | 0 / 1800, 0 | ≤ 2 %, 0 |
+
+Rust bench: open + first page 2.6 ms, list page p95 0.20 ms, thread open p95 0.20 ms, search p95 12.8 ms, action write p95 1.07 ms (max 17.5 ms, over the 16 ms line; the check is on p95, as before). The pre-1G-U3 exe on the same day measured 328–373 ms worst cold launch, so the fonts cost nothing measurable; margin is ~80 ms.
+
+## Next: Phase 1G-U3b (fonts)
+
+1. Font picker: the other 10 interface and 9 code fonts from the plan (load on demand from disk or embed; measure cold launch either way). `fonts::UI_FONTS` / `CODE_FONTS` and the Fonts tab chips already take a list.
+2. A use site for the code font in the reader (plain-text bodies, inline code); today only the Fonts tab sample uses it.
+3. Then Phase 2 as before.
 
 ## Requests
 

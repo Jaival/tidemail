@@ -465,7 +465,7 @@ impl Reader {
                 ui::chip(l.name.clone(), color)
             })
             .collect();
-        let display_font = state.spec().display_font;
+        let display_font = state.display_font();
         div()
             .flex_none()
             .px_4()

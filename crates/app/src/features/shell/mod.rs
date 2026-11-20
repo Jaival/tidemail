@@ -13,6 +13,7 @@ use tidemail_db::types::{ActionKind, ThreadPage};
 use crate::{
     actions::*,
     features::{
+        appearance::Appearance,
         list::ThreadList,
         palette::{self, toast::Toast, Picker},
         reader::Reader,
@@ -33,6 +34,8 @@ pub struct Shell {
     focus: FocusHandle,
     /// The picker for the top overlay.
     picker: Option<(Overlay, Entity<Picker>)>,
+    /// The Appearance overlay, while it is the top overlay.
+    appearance: Option<Entity<Appearance>>,
     toast: Option<Toast>,
     toast_timer: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -94,6 +97,7 @@ impl Shell {
             search,
             focus,
             picker: None,
+            appearance: None,
             toast: None,
             toast_timer: None,
             _subscriptions: vec![sub, leave, observe],
@@ -104,12 +108,23 @@ impl Shell {
     /// the shell when no picker is left.
     fn sync_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let top = self.state.read(cx).top_overlay().cloned();
-        if self.picker.as_ref().map(|(o, _)| o) == top.as_ref() {
+        let shown = match (&self.picker, &self.appearance) {
+            (Some((o, _)), _) => Some(o.clone()),
+            (None, Some(a)) => Some(a.read(cx).overlay()),
+            (None, None) => None,
+        };
+        if shown == top {
             return;
         }
+        self.appearance = match top {
+            Some(Overlay::Appearance { fonts }) => Some(self.appearance.take().unwrap_or_else(|| {
+                cx.new(|cx| Appearance::new(self.state.clone(), fonts, window, cx))
+            })),
+            _ => None,
+        };
         self.picker =
             top.and_then(|o| palette::open(&o, &self.state, window, cx).map(|picker| (o, picker)));
-        if self.picker.is_none() {
+        if self.picker.is_none() && self.appearance.is_none() {
             self.focus.focus(window, cx);
         }
         cx.notify();
@@ -142,12 +157,16 @@ impl Shell {
         }
     }
 
-    /// Esc: close the top overlay. False if none is open.
-    fn dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+    /// Esc: close the top overlay (Appearance puts back its settings).
+    /// False if none is open.
+    fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(top) = self.state.read(cx).top_overlay().cloned() else {
             return false;
         };
-        self.state.update(cx, |s, cx| s.close_overlay(&top, cx));
+        match (&top, self.appearance.clone()) {
+            (Overlay::Appearance { .. }, Some(a)) => a.update(cx, |a, cx| a.cancel(window, cx)),
+            _ => self.state.update(cx, |s, cx| s.close_overlay(&top, cx)),
+        }
         true
     }
 
@@ -205,7 +224,7 @@ impl Render for Shell {
         let mut context = KeyContext::default();
         // While a picker or the search input has focus the single-key
         // bindings must not match: the shell context is replaced.
-        context.add(if self.picker.is_some() {
+        context.add(if self.picker.is_some() || self.appearance.is_some() {
             PICKER_CONTEXT
         } else if self.search.read(cx).focused {
             SEARCH_CONTEXT
@@ -254,7 +273,7 @@ impl Render for Shell {
             }))
             .on_action(cx.listener(|this, _: &CloseReader, window, cx| {
                 // Esc peels one layer: overlay, then search query, then reader.
-                if this.dismiss(cx) {
+                if this.dismiss(window, cx) {
                 } else if this.results(cx).is_some() {
                     this.search.update(cx, |s, cx| s.clear(window, cx))
                 } else {
@@ -263,14 +282,16 @@ impl Render for Shell {
             }))
             // Esc: close the top overlay, else clear an active search query.
             .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
-                if !this.dismiss(cx) && this.results(cx).is_some() {
+                if !this.dismiss(window, cx) && this.results(cx).is_some() {
                     this.search.update(cx, |s, cx| s.clear(window, cx))
                 }
             }))
-            .on_action(cx.listener(|this, _: &CommandPalette, _, cx| {
-                match this.state.read(cx).top_overlay() == Some(&Overlay::Palette) {
-                    true => this.dismiss(cx),
-                    false => {
+            .on_action(cx.listener(|this, _: &CommandPalette, window, cx| {
+                match this.state.read(cx).top_overlay() {
+                    // Done or Cancel first: the palette would stack over it.
+                    Some(Overlay::Appearance { .. }) => true,
+                    Some(Overlay::Palette) => this.dismiss(window, cx),
+                    _ => {
                         this.push_overlay(Overlay::Palette, cx);
                         true
                     }
@@ -330,6 +351,7 @@ impl Render for Shell {
             .child(self.body(cx))
             .when(spec.hint_bar, |d| d.child(self.hint_bar(cx)))
             .when_some(self.picker.as_ref(), |d, (_, p)| d.child(p.clone()))
+            .when_some(self.appearance.clone(), |d, a| d.child(a))
     }
 }
 
@@ -385,7 +407,7 @@ impl Shell {
                 div()
                     .text_size(px(ui::TEXT_LG + 2.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .when_some(s.spec().display_font, |d, f| d.font_family(f))
+                    .when_some(s.display_font(), |d, f| d.font_family(f))
                     .child(s.nav.title.clone()),
             )
             .when(unread > 0, |d| {

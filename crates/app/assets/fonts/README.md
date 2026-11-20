@@ -1,8 +1,11 @@
 # Bundled fonts
 
-Interface fonts for the themes plan (`docs/design/themes-plan.md`, Fonts).
-Not wired into the app yet: the plan's Fonts step embeds them with
-`include_bytes!` and registers the chosen one with `cx.text_system().add_fonts`.
+Fonts for the themes plan (`docs/design/themes-plan.md`, Fonts). Phase 1G-U3
+embeds only the defaults, Inter and Obel Mono (`src/fonts.rs`, `include_bytes!`),
+and registers the chosen ones with `cx.text_system().add_fonts`. The other
+interface fonts here are not in the exe yet; the nine other code fonts are in
+Forkline (`crates/fl-app/fonts` in that repo) and get copied when
+the picker grows.
 
 Each family folder holds static weights (400 Regular, 500 Medium, 600 SemiBold,
 700 Bold, unless noted) and its licence. All are under the SIL Open Font
@@ -21,6 +24,7 @@ License 1.1, which allows bundling them in the app; keep each `OFL.txt` (and
 | Plus Jakarta Sans | `plus-jakarta-sans/` | 400 500 600 700 | google/fonts `ofl/plusjakartasans`, cut from the variable font |
 | Manrope | `manrope/` | 400 500 600 700 | google/fonts `ofl/manrope`, cut from the variable font |
 | Google Sans | `google-sans/` | 400 500 700 | googlefonts/googlesans release v14.000, `android/static/GoogleSansText-*`, unmodified. Family name is "Google Sans Text" (the small-size optical cut, right for UI text). No 600: SemiBold falls back to Medium |
+| Obel Mono (default code font) | `obel-mono/` | variable, `wght` | Obel Mono 1.004 (Typographic Systems, 2026), `ObelMono[wght].ttf` and `ObelMonoMasked[wght].ttf` (the build with `ss01`, secret masking, on by default) unmodified; copied from Forkline |
 | Google Sans Flex | `google-sans-flex/` | variable, 100-1000 | googlefonts/googlesans-flex release v5.000, unmodified variable font. Kept as shipped because of Google's trademark terms (see `TRADEMARKS.md`). Check that GPUI picks weights from a variable font; if it does not, drop Google Sans Flex or ask Google's terms first before cutting statics |
 
 "Cut from the variable font" means each weight was made with fontTools'

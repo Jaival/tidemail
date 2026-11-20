@@ -329,6 +329,16 @@ fn palette_items(state: &Entity<AppState>, cx: &App) -> Vec<Item> {
             .checked(settings.theme == pref),
         );
     }
+    for (label, fonts) in [
+        ("Theme…", false),
+        ("Accent colour…", false),
+        ("Fonts…", true),
+    ] {
+        let state = state.clone();
+        items.push(Item::new(label, move |_, cx| {
+            state.update(cx, |s, cx| s.push_overlay(Overlay::Appearance { fonts }, cx))
+        }));
+    }
     for n in PREFETCH_CHOICES {
         let state = state.clone();
         items.push(
@@ -485,7 +495,7 @@ pub fn open(
             account_id,
         } => ("Move to…", move_items(state, *thread_id, *account_id, cx)),
         Overlay::GoPicker => ("Go to label…", go_items(state, cx)),
-        Overlay::Toast => return None,
+        Overlay::Toast | Overlay::Appearance { .. } => return None,
     };
     let picker = cx.new(|cx| {
         Picker::new(

@@ -1,8 +1,11 @@
 # Drive tidemail: launch on a db copy with preset+mode, run steps, screenshot.
 # Usage: drive.ps1 -Preset tide -Mode dark -Name tide-dark -Steps "wait:1500|shot:list|send:j|wait:800|shot:reader"
 # Steps: send:<SendKeys string>, text:<literal text>, wait:<ms>, shot:<name>, click:<x>,<y> (window px), fg
+# -Colors: preset (default) | accent | a theme name (midnight, graphite, fjord, forest, rose,
+#   high-contrast, daylight, linen); used for both modes. -Accent "<hue>,<normal|muted>,<true|false>".
 param([string]$Preset, [string]$Mode, [string]$Name, [string]$Steps,
-      [string]$Exe = "target\release\tidemail.exe", [string]$BenchDb = "bench.db", [switch]$Fresh)
+      [string]$Exe = "target\release\tidemail.exe", [string]$BenchDb = "bench.db", [switch]$Fresh,
+      [string]$Colors = "preset", [string]$Accent = "268,normal,true")
 $ErrorActionPreference = "Stop"
 $dir = "$env:TEMP\tidemail-shots\db"
 $out = "$env:TEMP\tidemail-shots\shots"
@@ -11,7 +14,15 @@ if ($Fresh -or -not (Test-Path "$dir\mail.db")) {
   Remove-Item "$dir\mail.db*" -ErrorAction SilentlyContinue
   Copy-Item $BenchDb "$dir\mail.db" -Force
 }
-Set-Content "$dir\settings.json" "{`"theme`":`"$Mode`",`"prefetch`":10,`"preset`":`"$Preset`"}"
+$choice = switch ($Colors) {
+  "preset" { '{"kind":"preset"}' }
+  "accent" { '{"kind":"accent"}' }
+  default { "{`"kind`":`"theme`",`"name`":`"$Colors`"}" }
+}
+$hue, $chroma, $tint = $Accent.Split(",")
+$settings = "{`"theme`":`"$Mode`",`"prefetch`":10,`"preset`":`"$Preset`",`"colorsDark`":$choice,`"colorsLight`":$choice," +
+  "`"accent`":{`"hue`":$hue,`"chroma`":`"$chroma`",`"tint`":$tint}}"
+Set-Content "$dir\settings.json" $settings
 
 Add-Type @"
 using System; using System.Runtime.InteropServices;

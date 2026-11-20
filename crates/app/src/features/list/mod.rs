@@ -262,7 +262,7 @@ impl ThreadList {
             thread: row,
             selected: state.selected == Some(row.id),
             account,
-            display_font: spec.display_font,
+            display_font: state.display_font(),
             snippet: None,
         };
         let id = row.id;

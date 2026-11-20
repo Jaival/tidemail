@@ -12,6 +12,7 @@ mod bench;
 mod data;
 mod events;
 mod features;
+mod fonts;
 mod format;
 mod gmail_adapter;
 mod preset;
@@ -126,13 +127,13 @@ fn main() {
             let first_page = pre.first_page;
             let bench_path = bench_path.clone();
             let opened = gpui_kit::open_window(options, cx, |window, cx| {
-                let s = &state.read(cx).settings;
-                theme::apply(s.theme, s.preset, window, cx);
+                let s = state.read(cx).settings.clone();
+                theme::apply(&s, window, cx);
                 let theme_state = state.clone();
                 window
                     .observe_window_appearance(move |window, cx| {
-                        let s = &theme_state.read(cx).settings;
-                        theme::apply(s.theme, s.preset, window, cx)
+                        let s = theme_state.read(cx).settings.clone();
+                        theme::apply(&s, window, cx)
                     })
                     .detach();
 

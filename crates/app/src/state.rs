@@ -50,6 +50,8 @@ pub enum Overlay {
     },
     /// "Go to label": every label, for tabs and the rail (`g l`).
     GoPicker,
+    /// Theme, accent and fonts (`features::appearance`); `fonts` opens the Fonts tab.
+    Appearance { fonts: bool },
     /// Not pushed: toasts sit in the list pane or hint bar, never over the webview (ADR 0002).
     #[allow(dead_code)]
     Toast,
@@ -287,16 +289,37 @@ impl AppState {
 
     pub fn set_theme(&mut self, theme: ThemePref, window: &mut Window, cx: &mut Context<Self>) {
         self.settings.theme = theme;
-        crate::theme::apply(theme, self.settings.preset, window, cx);
+        crate::theme::apply(&self.settings, window, cx);
         self.save_settings(cx);
     }
 
-    /// Switch layout and palette live.
+    /// Switch layout (and the palette, with "Preset colours") live.
     pub fn set_preset(&mut self, preset: Preset, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.preset != preset {
             self.settings.preset = preset;
-            crate::theme::apply(self.settings.theme, preset, window, cx);
+            crate::theme::apply(&self.settings, window, cx);
             self.save_settings(cx);
+        }
+    }
+
+    /// Replace the settings (the Appearance overlay: unsaved while it
+    /// previews, saved on Done). The caller has applied the theme already.
+    pub fn set_settings(&mut self, settings: Settings, save: bool, cx: &mut Context<Self>) {
+        self.settings = settings;
+        if save {
+            self.save_settings(cx);
+        } else {
+            cx.emit(StateEvent::SettingsChanged);
+        }
+    }
+
+    /// Font for subjects and list titles: the preset's display font, unless
+    /// the interface font is used for headings too.
+    pub fn display_font(&self) -> Option<&'static str> {
+        if self.settings.headings_use_ui_font {
+            None
+        } else {
+            self.spec().display_font
         }
     }
 
