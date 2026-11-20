@@ -41,6 +41,15 @@ pub fn document(
     )
 }
 
+/// Host script (`ExecuteScript` runs even with page scripts off) that puts
+/// `html` into the current document and returns `nonce`. The document's CSP
+/// meta tag stays in force, so this is only used when the image policy is
+/// unchanged. A full navigation costs ~70 ms per j/k step; this costs a few.
+pub fn swap_script(html: &str, nonce: u64) -> String {
+    let html = serde_json::to_string(html).expect("a string serializes");
+    format!("document.title='{nonce}';document.body.innerHTML={html};scrollTo(0,0);document.title")
+}
+
 /// True when the HTML refers to remote images (`src="http..."`, `url(http...)`).
 /// Drives the "Load images" button; the CSP is what blocks them.
 pub fn has_remote_images(html: &str) -> bool {
@@ -91,6 +100,15 @@ pub fn size(bytes: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swap_script_embeds_the_body_as_a_js_string() {
+        let s = swap_script("<p class=\"a\">it's</p>\n", 7);
+        assert_eq!(
+            s,
+            "document.title='7';document.body.innerHTML=\"<p class=\\\"a\\\">it's</p>\\n\";scrollTo(0,0);document.title"
+        );
+    }
 
     #[test]
     fn csp_adds_https_images_only_when_allowed() {

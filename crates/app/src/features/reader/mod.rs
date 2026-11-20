@@ -74,11 +74,17 @@ impl Reader {
             {
                 this.load(cx)
             }
-            StateEvent::ReadingChanged
-            | StateEvent::OverlaysChanged
-            | StateEvent::SettingsChanged => {
+            StateEvent::ReadingChanged | StateEvent::OverlaysChanged => {
                 this.sync_visibility(cx);
                 cx.notify();
+            }
+            // Preset or theme: the page colours live in the document head.
+            StateEvent::SettingsChanged => {
+                if let Some(host) = &mut this.host {
+                    host.images = None;
+                }
+                this.key = None;
+                this.present(cx);
             }
             _ => {}
         });
@@ -132,11 +138,11 @@ impl Reader {
 
     fn attach_host(
         &mut self,
-        built: wry::Result<(wry::WebView, host::Loaded)>,
+        built: wry::Result<(wry::WebView, host::LoadedTx, host::Loaded)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (webview, mut loaded) = match built {
+        let (webview, tx, mut loaded) = match built {
             Ok(built) => built,
             Err(e) => {
                 eprintln!("tidemail: reader webview unavailable: {e}");
@@ -149,6 +155,8 @@ impl Reader {
         let host = Host {
             view: cx.new(|_| webview),
             applied: Default::default(),
+            loaded: tx,
+            images: None,
         };
         let _ = host.view.update(cx, |v, _| v.set_visible(false));
         // Page-load events arrive on the UI thread; turn them into entity updates.
@@ -273,7 +281,25 @@ impl Reader {
                     self.key = Some(key);
                     self.nonce += 1;
                     self.pending = Some((self.nonce, thread_id));
-                    if let Some(host) = &self.host {
+                    if let Some(host) = self.host.as_mut().filter(|h| h.images == Some(load_images)) {
+                        let (tx, nonce) = (host.loaded.clone(), self.nonce);
+                        let script = page::swap_script(&html, nonce);
+                        let swapped = host.view.read(cx).raw().evaluate_script_with_callback(
+                            &script,
+                            move |title| {
+                                // JSON of document.title: the nonce once the body is in.
+                                if title.trim_matches('"') == nonce.to_string() {
+                                    let _ = tx.unbounded_send(nonce);
+                                }
+                            },
+                        );
+                        if let Err(e) = swapped {
+                            eprintln!("tidemail: reader body swap failed: {e}");
+                            host.images = None;
+                        }
+                    }
+                    if let Some(host) = self.host.as_mut().filter(|h| h.images != Some(load_images)) {
+                        host.images = Some(load_images);
                         let c = colors(cx);
                         let doc = page::document(
                             &html,

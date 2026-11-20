@@ -23,6 +23,10 @@ use crate::data::Db;
 
 pub struct Host {
     pub view: gpui_kit::Entity<gpui_webview::WebView>,
+    pub loaded: LoadedTx,
+    /// Image policy (CSP) of the document in the webview; `None` before the
+    /// first navigation. Bodies with the same policy are swapped in place.
+    pub images: Option<bool>,
     /// Bounds last given to WebView2 (set only when they change).
     pub applied: std::rc::Rc<Cell<gpui_kit::Bounds<gpui_kit::Pixels>>>,
 }
@@ -41,14 +45,17 @@ impl HasWindowHandle for Parent {
 
 /// Nonces (`<title>`) of documents whose page load finished.
 pub type Loaded = UnboundedReceiver<u64>;
+/// Sends a nonce into [`Loaded`] (body swaps report through it too).
+pub type LoadedTx = futures::channel::mpsc::UnboundedSender<u64>;
 
 pub fn build(
     parent: HWND,
     db: Arc<Db>,
     background: [u8; 3],
     executor: BackgroundExecutor,
-) -> wry::Result<(wry::WebView, Loaded)> {
+) -> wry::Result<(wry::WebView, LoadedTx, Loaded)> {
     let (tx, loaded) = unbounded();
+    let swapped = tx.clone();
     // Title events come before the page-load event of the same document.
     let title = Rc::new(Cell::new(0u64));
     let title_seen = title.clone();
@@ -123,5 +130,5 @@ pub fn build(
         }));
         webview.controller().add_GotFocus(&handler, &mut token)?;
     }
-    Ok((webview, loaded))
+    Ok((webview, swapped, loaded))
 }
