@@ -13,6 +13,10 @@ fn ms_from_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Err
 pub struct Profile {
     pub email_address: String,
     pub history_id: String,
+    #[serde(default)]
+    pub messages_total: Option<i64>,
+    #[serde(default)]
+    pub threads_total: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

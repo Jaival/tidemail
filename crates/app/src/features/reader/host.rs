@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 use wry::{
     http::{header, Response},
-    NewWindowResponse, PageLoadEvent, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
+    NewWindowResponse, PageLoadEvent, WebContext, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
 };
 
 use super::page;
@@ -61,7 +61,14 @@ pub fn build(
     let title = Rc::new(Cell::new(0u64));
     let title_seen = title.clone();
 
-    let builder = WebViewBuilder::new()
+    // WebView2 user data (cache, cookies) under the app folder, not next to
+    // the exe; kept between runs. One folder for every database.
+    let data = std::env::var_os("LOCALAPPDATA")
+        .map_or_else(|| std::path::PathBuf::from("."), std::path::PathBuf::from)
+        .join("Tidemail")
+        .join("WebView2");
+    let mut context = WebContext::new(Some(data));
+    let builder = WebViewBuilder::new_with_web_context(&mut context)
         .with_javascript_disabled()
         .with_devtools(false)
         .with_hotkeys_zoom(false)

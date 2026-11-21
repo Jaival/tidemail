@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -14,7 +14,11 @@ use tidemail_sync::api::{
 };
 
 /// Rounds of resubmitting per-part rate-limited batch calls before giving up.
-const BATCH_RETRIES: u32 = 5;
+/// Waits 2, 4, … 60 s: two minutes, so a per-minute quota window passes.
+const BATCH_RETRIES: u32 = 6;
+/// Parts per HTTP batch call. Gmail runs the parts of a batch at once and
+/// answers 429 "too many concurrent requests" to most parts of a batch of 50.
+const BATCH_PARTS: usize = 10;
 
 fn map_err(e: gm::Error) -> ApiError {
     match e {
@@ -22,6 +26,7 @@ fn map_err(e: gm::Error) -> ApiError {
         gm::Error::AuthExpired | gm::Error::Auth(_) => ApiError::Auth(e.to_string()),
         gm::Error::HistoryExpired => ApiError::HistoryExpired,
         gm::Error::RateLimited => ApiError::RateLimited,
+        gm::Error::Config(e) => ApiError::Setup(e),
         e => ApiError::Other(e.to_string()),
     }
 }
@@ -76,8 +81,45 @@ fn to_remote(m: gm::Message, format: Format) -> Result<RemoteMessage, gm::Error>
         id: m.id,
         thread_id: m.thread_id,
         label_ids: m.label_ids,
-        snippet: m.snippet,
+        snippet: unescape_snippet(&m.snippet),
     })
+}
+
+/// Gmail sends `snippet` HTML-escaped (`Don&#39;t`). The list shows plain text.
+fn unescape_snippet(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let decoded = rest.find(';').filter(|&end| end <= 10).and_then(|end| {
+            let c = match &rest[1..end] {
+                "amp" => '&',
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                "nbsp" => '\u{a0}',
+                n => match n.strip_prefix("#x").or_else(|| n.strip_prefix("#X")) {
+                    Some(hex) => char::from_u32(u32::from_str_radix(hex, 16).ok()?)?,
+                    None => char::from_u32(n.strip_prefix('#')?.parse().ok()?)?,
+                },
+            };
+            Some((c, end))
+        });
+        match decoded {
+            Some((c, end)) => {
+                out.push(c);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn to_history_page(h: gm::HistoryList) -> ApiResult<HistoryPage> {
@@ -118,18 +160,20 @@ impl GmailApi for Api {
         Ok(Profile {
             email: p.email_address,
             history_id: p.history_id,
+            messages_total: p.messages_total,
         })
     }
 
     async fn list_message_ids(
         &self,
         label: Option<&str>,
+        query: Option<&str>,
         page_token: Option<&str>,
     ) -> ApiResult<IdPage> {
         let labels: Vec<&str> = label.into_iter().collect();
         let list = self
             .0
-            .list_messages(None, &labels, page_token, None)
+            .list_messages(query, &labels, page_token, None)
             .await
             .map_err(map_err)?;
         Ok(IdPage {
@@ -156,12 +200,17 @@ impl GmailApi for Api {
             .collect();
         let mut results: Vec<Option<gm::BatchResponse>> = vec![None; ids.len()];
         let mut pending: Vec<usize> = (0..ids.len()).collect();
+        let mut reason = String::new();
         for round in 0..=BATCH_RETRIES {
-            let batch: Vec<_> = pending.iter().map(|&i| requests[i].clone()).collect();
-            let responses = self.0.batch(&batch).await.map_err(map_err)?;
+            let mut responses = Vec::with_capacity(pending.len());
+            for part in pending.chunks(BATCH_PARTS) {
+                let batch: Vec<_> = part.iter().map(|&i| requests[i].clone()).collect();
+                responses.extend(self.0.batch(&batch).await.map_err(map_err)?);
+            }
             let mut limited = Vec::new();
             for (&i, r) in pending.iter().zip(responses) {
                 if r.is_rate_limited() {
+                    reason = format!("{} {}", r.status, r.body["error"]["message"]);
                     limited.push(i);
                 } else {
                     results[i] = Some(r);
@@ -171,10 +220,23 @@ impl GmailApi for Api {
             if pending.is_empty() {
                 break;
             }
+            if std::env::var_os("TIDEMAIL_SYNC_LOG").is_some() {
+                eprintln!(
+                    "tidemail: batch round {round}: {} of {} parts rate limited ({reason})",
+                    pending.len(),
+                    ids.len()
+                );
+            }
             if round == BATCH_RETRIES {
+                eprintln!(
+                    "tidemail: {} of {} batch parts still rate limited ({})",
+                    pending.len(),
+                    ids.len(),
+                    reason
+                );
                 return Err(ApiError::RateLimited);
             }
-            tokio::time::sleep(Duration::from_secs(1 << round)).await;
+            tokio::time::sleep(Duration::from_secs((2u64 << round).min(60))).await;
         }
         let mut out = Vec::with_capacity(ids.len());
         for r in results.into_iter().flatten() {
@@ -246,25 +308,29 @@ impl GmailApi for Api {
     }
 }
 
-/// Real provider. `config.toml` is read on first use, not at launch.
+/// Real provider. `config.toml` is read on first use, not at launch; a
+/// failed read is retried next time (the user may create the file).
 pub struct Provider {
-    config: OnceLock<Result<gm::Config, String>>,
+    config: Mutex<Option<gm::Config>>,
     apis: Mutex<HashMap<String, Arc<dyn GmailApi>>>,
 }
 
 impl Provider {
     pub fn new() -> Self {
         Self {
-            config: OnceLock::new(),
+            config: Mutex::default(),
             apis: Mutex::default(),
         }
     }
 
     fn config(&self) -> ApiResult<gm::Config> {
-        self.config
-            .get_or_init(|| gm::load_config().map_err(|e| e.to_string()))
-            .clone()
-            .map_err(ApiError::Other)
+        let mut config = self.config.lock().expect("config lock");
+        if let Some(c) = config.as_ref() {
+            return Ok(c.clone());
+        }
+        let loaded = gm::load_config().map_err(map_err)?;
+        *config = Some(loaded.clone());
+        Ok(loaded)
     }
 }
 
@@ -313,6 +379,14 @@ impl GmailProvider for Provider {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn snippet_entities_are_decoded() {
+        assert_eq!(
+            unescape_snippet("Don&#39;t &amp; &lt;b&gt; &quot;x&quot; &#x263A; caf&eacute; AT&T &;"),
+            "Don't & <b> \"x\" \u{263A} caf&eacute; AT&T &;"
+        );
+    }
 
     #[test]
     fn maps_full_message() {
@@ -414,7 +488,7 @@ mod tests {
         ));
         assert!(matches!(
             map_err(gm::Error::Config("x".into())),
-            ApiError::Other(_)
+            ApiError::Setup(_)
         ));
         let api = gm::Error::Api {
             status: 500,

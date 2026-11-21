@@ -20,6 +20,14 @@ pub fn list_date(ms: i64) -> SharedString {
 }
 
 /// "12 s", "5 min", "3 h".
+/// "21 May 2026" in local time.
+pub fn long_date(ms: i64) -> String {
+    Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map_or_else(String::new, |d| d.format("%-d %b %Y").to_string())
+}
+
 pub fn age(ms: i64) -> String {
     let s = (ms.max(0) as f64 / 1000.0).round() as i64;
     match s {
@@ -42,6 +50,30 @@ pub fn parse_color(hex: &str) -> Hsla {
         .map_or_else(|| rgb(0x888888).into(), |v| rgb(v).into())
 }
 
+/// A short message for the user. The raw error text goes to stderr.
+pub fn user_error(e: &tidemail_sync::Error) -> String {
+    use tidemail_gmail::Error as G;
+    use tidemail_sync::{api::ApiError as A, Error as E};
+    eprintln!("tidemail: {e}");
+    match e {
+        E::Api(A::Setup(_)) | E::Gmail(G::Config(_)) => format!(
+            "Gmail is not set up: create {} (see README)",
+            tidemail_gmail::config_path().display()
+        ),
+        E::Api(A::Offline(_)) | E::Gmail(G::Http(_)) => "Offline. Try again when connected".into(),
+        E::Api(A::Auth(_)) | E::Gmail(G::Auth(_) | G::AuthExpired) => {
+            "Google sign-in failed or expired. Sign in again".into()
+        }
+        E::Api(A::RateLimited) | E::Gmail(G::RateLimited) => {
+            "Gmail is busy. Try again in a minute".into()
+        }
+        E::Gmail(G::Keyring(_)) => "Windows Credential Manager refused the sign-in token".into(),
+        E::Io(io) => format!("Cannot save the file: {}", io.kind()),
+        E::NotFound(_) => "Not found. It may have been deleted".into(),
+        _ => "Something went wrong (details in the log)".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,6 +83,14 @@ mod tests {
         assert_eq!(age(12_000), "12 s");
         assert_eq!(age(5 * 60_000), "5 min");
         assert_eq!(age(3 * 3_600_000), "3 h");
+    }
+
+    #[test]
+    fn setup_error_names_the_config_file() {
+        let e = tidemail_sync::Error::Api(tidemail_sync::api::ApiError::Setup("cannot read".into()));
+        assert!(user_error(&e).contains("config.toml"));
+        let e = tidemail_sync::Error::Api(tidemail_sync::api::ApiError::Other("x".into()));
+        assert!(!user_error(&e).contains('x'));
     }
 
     #[test]

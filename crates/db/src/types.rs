@@ -216,6 +216,20 @@ pub struct AccountSync {
     pub account_id: i64,
     pub state: AccountSyncState,
     pub last_sync_at: Option<i64>,
+    /// Oldest mail the backfill lists (epoch ms); `None` = all mail.
+    pub sync_from: Option<i64>,
+    /// While a backfill runs.
+    pub backfill: Option<Backfill>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Backfill {
+    /// 0..=99.
+    pub percent: u8,
+    /// Mail older than the default window was asked for in settings (not the
+    /// first sync).
+    pub older: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

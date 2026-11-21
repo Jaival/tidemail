@@ -97,6 +97,7 @@ fn setup(cfg: Config, with_account: bool, gmail: Arc<FakeGmail>) -> H {
 fn cfg() -> Config {
     Config {
         batch_gap: Duration::ZERO,
+        sync_window: None,
         ..Config::default()
     }
 }
@@ -872,4 +873,84 @@ async fn download_attachment_saves_file_once() {
         .unwrap();
     assert_eq!(PathBuf::from(stored), p);
     let _ = &h.path;
+}
+
+// ---- sync window ----
+
+const DAY_MIN: i64 = 24 * 60;
+
+fn window_cfg() -> Config {
+    Config {
+        sync_window: Some(Duration::from_secs(183 * 24 * 3600)),
+        ..cfg()
+    }
+}
+
+fn account_id(c: &Connection) -> i64 {
+    count(c, "SELECT id FROM accounts")
+}
+
+#[tokio::test(start_paused = true)]
+async fn new_account_lists_only_the_window_and_settings_extend_it() {
+    let g = FakeGmail::new();
+    let base = tidemail_db::now_ms();
+    for i in 0..30 {
+        let age = if i < 10 { i * DAY_MIN } else { 400 * DAY_MIN + i };
+        g.add(msg(i, i, &["INBOX"], age, base));
+    }
+    let h = setup(window_cfg(), true, g);
+    until(|| backfill_done(&h.ro)).await;
+    secs(30).await;
+    assert_eq!(count(&h.ro, "SELECT count(*) FROM messages"), 10);
+    let a = h.engine.status().accounts[0].clone();
+    assert!(a.sync_from.is_some_and(|f| f < base - 182 * DAY_MIN * 60_000));
+    assert_eq!(a.backfill, None);
+
+    // A narrower window is refused; a wider one starts the backfill again.
+    let id = account_id(&h.ro);
+    h.engine.extend_sync(id, Some(base)).unwrap();
+    assert_eq!(h.engine.status().accounts[0].sync_from, a.sync_from);
+    h.engine.extend_sync(id, None).unwrap();
+    let b = h.engine.status().accounts[0].clone();
+    assert_eq!(b.sync_from, None);
+    assert!(b.backfill.is_some_and(|b| b.older));
+    until(|| count(&h.ro, "SELECT count(*) FROM messages") == 30).await;
+    until(|| backfill_done(&h.ro)).await;
+    assert_eq!(h.engine.status().accounts[0].backfill, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn first_sync_progress_follows_the_window() {
+    let g = FakeGmail::new();
+    let base = tidemail_db::now_ms();
+    for i in 0..10 {
+        g.add(msg(i, i, &["INBOX"], i * DAY_MIN, base));
+    }
+    g.st().offline = true;
+    let h = setup(window_cfg(), true, g);
+    // Offline before the first page: the window is set, nothing stored.
+    until(|| count(&h.ro, "SELECT count(*) FROM sync_state") == 1).await;
+    let s = h.engine.status().accounts[0].clone();
+    assert_eq!(s.backfill.map(|b| (b.percent, b.older)), Some((0, false)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn full_diff_keeps_stored_mail_older_than_the_window() {
+    let g = FakeGmail::new();
+    let base = tidemail_db::now_ms();
+    for i in 0..10 {
+        g.add(msg(i, i, &["INBOX"], i * DAY_MIN, base));
+    }
+    let h = setup(window_cfg(), true, g);
+    until(|| backfill_done(&h.ro)).await;
+    // Mail of days 6..9 is stored but now outside the window.
+    h.ro.execute(
+        "UPDATE sync_state SET sync_from = ?1",
+        [base - 5 * DAY_MIN * 60_000],
+    )
+    .unwrap();
+    h.gmail.delete("m1");
+    h.gmail.expire_history();
+    until(|| count(&h.ro, "SELECT count(*) FROM messages WHERE gmail_id = 'm1'") == 0).await;
+    assert_eq!(count(&h.ro, "SELECT count(*) FROM messages"), 9);
 }

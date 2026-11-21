@@ -235,7 +235,10 @@ impl ThreadList {
                 let Ok((rows, next)) = result else { return };
                 this.rows = rows;
                 this.next = next;
-                let gone = old_id.is_some_and(|id| !this.rows.iter().any(|r| r.id == id));
+                // While a search is shown the selection belongs to its results:
+                // a thread that leaves the hidden list must not move it.
+                let gone = !this.state.read(cx).searching
+                    && old_id.is_some_and(|id| !this.rows.iter().any(|r| r.id == id));
                 if let (true, Some(ix)) = (gone, old_ix) {
                     if this.rows.is_empty() {
                         this.state.update(cx, |s, cx| s.clear_selection(cx));

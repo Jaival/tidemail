@@ -108,7 +108,11 @@ impl GmailClient {
             .unwrap_or_default()
             .to_string();
         let text = resp.text().await?;
-        parse_batch(&resp_type, &text, chunk.len())
+        let parts = parse_batch(&resp_type, &text, chunk.len())?;
+        if parts.iter().any(BatchResponse::is_rate_limited) {
+            self.quota.slow_down().await;
+        }
+        Ok(parts)
     }
 }
 

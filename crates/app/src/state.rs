@@ -15,6 +15,7 @@ use tidemail_sync::Engine;
 
 use crate::{
     data::{self, Db},
+    format,
     preset::{Preset, PresetSpec},
     settings::{Settings, ThemePref},
 };
@@ -52,6 +53,8 @@ pub enum Overlay {
     GoPicker,
     /// Theme, accent and fonts (`features::appearance`); `fonts` opens the Fonts tab.
     Appearance { fonts: bool },
+    /// How much mail each account keeps; download older mail (`features::accounts`).
+    Accounts,
     /// Not pushed: toasts sit in the list pane or hint bar, never over the webview (ADR 0002).
     #[allow(dead_code)]
     Toast,
@@ -81,6 +84,10 @@ pub enum StateEvent {
     ActionFailed {
         text: SharedString,
     },
+    /// Information for a toast without undo (sign-in progress).
+    Notice {
+        text: SharedString,
+    },
 }
 
 pub struct AppState {
@@ -95,6 +102,8 @@ pub struct AppState {
     pub selected: Option<i64>,
     /// The reader is on screen. With `ReaderPlacement::Replace` it replaces the list.
     pub reading: bool,
+    /// A search query is active: its results replace the thread list.
+    pub searching: bool,
     pub status: SyncStatus,
     pub settings: Settings,
     settings_path: PathBuf,
@@ -128,6 +137,7 @@ impl AppState {
             nav: Nav::inbox(),
             selected: None,
             reading: false,
+            searching: false,
             status,
             settings,
             settings_path,
@@ -221,7 +231,12 @@ impl AppState {
                 }),
                 (Ok(_), None) => {}
                 (Err(e), text) => cx.emit(StateEvent::ActionFailed {
-                    text: format!("{} failed: {e}", text.unwrap_or("Action".into())).into(),
+                    text: format!(
+                        "{} failed. {}",
+                        text.unwrap_or("Action".into()),
+                        format::user_error(&e)
+                    )
+                    .into(),
                 }),
             });
         })
@@ -235,7 +250,7 @@ impl AppState {
             if let Err(e) = task.await {
                 let _ = this.update(cx, |_, cx| {
                     cx.emit(StateEvent::ActionFailed {
-                        text: format!("Undo failed: {e}").into(),
+                        text: format!("Undo failed. {}", format::user_error(&e)).into(),
                     })
                 });
             }
@@ -378,6 +393,61 @@ impl AppState {
                 });
             }));
         }
+    }
+
+    /// Browser sign-in for a new Gmail account; its backfill starts after.
+    pub fn add_account(&mut self, cx: &mut Context<Self>) {
+        cx.emit(StateEvent::Notice {
+            text: "Sign in to Google in your browser…".into(),
+        });
+        let engine = self.engine.clone();
+        cx.spawn(async move |this, cx| {
+            let result = engine.add_account().await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(account) => {
+                    cx.emit(StateEvent::Notice {
+                        text: format!(
+                            "Added {}. Tidemail downloads the last 6 months of mail. \
+                             This can take a while for a big mailbox. It runs while \
+                             Tidemail is open or in the tray, and needs internet. For \
+                             older mail, open Accounts and sync (Ctrl+K).",
+                            account.email
+                        )
+                        .into(),
+                    });
+                    this.reload_accounts(cx);
+                }
+                Err(e) => cx.emit(StateEvent::ActionFailed {
+                    text: format!("Sign-in failed. {}", format::user_error(&e)).into(),
+                }),
+            });
+        })
+        .detach();
+    }
+
+    /// Remove the account, its local mail and its stored sign-in token.
+    pub fn sign_out(&mut self, account_id: i64, cx: &mut Context<Self>) {
+        let engine = self.engine.clone();
+        cx.spawn(async move |this, cx| {
+            let result = engine.remove_account(account_id).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    cx.emit(StateEvent::Notice {
+                        text: "Signed out".into(),
+                    });
+                    this.reload_accounts(cx);
+                }
+                Err(e) => cx.emit(StateEvent::ActionFailed {
+                    text: format!("Sign-out failed. {}", format::user_error(&e)).into(),
+                }),
+            });
+        })
+        .detach();
+    }
+
+    /// Reload accounts, labels and unread counts now (no sync event follows).
+    fn reload_accounts(&mut self, cx: &mut Context<Self>) {
+        self.on_data_changed(Vec::new(), Vec::new(), cx);
     }
 
     pub fn on_status(&mut self, status: SyncStatus, cx: &mut Context<Self>) {

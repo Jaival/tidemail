@@ -83,7 +83,7 @@ pub struct GmailClient {
     pub(crate) http: reqwest::Client,
     pub(crate) base: String,
     tokens: Arc<TokenSource>,
-    quota: Quota,
+    pub(crate) quota: Quota,
     retry: RetryPolicy,
 }
 
@@ -150,6 +150,10 @@ impl GmailClient {
             if let Error::Api { reason, .. } = &err {
                 if is_rate_limit(status, reason) {
                     retries += 1;
+                    self.quota.slow_down().await;
+                    if std::env::var_os("TIDEMAIL_SYNC_LOG").is_some() {
+                        eprintln!("tidemail-gmail: {status} {reason}, retry {retries}");
+                    }
                     if retries > self.retry.max_retries {
                         return Err(Error::RateLimited);
                     }

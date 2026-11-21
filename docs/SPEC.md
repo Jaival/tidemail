@@ -39,7 +39,8 @@ Gmail API  <->  Sync engine (Rust, tokio)  ->  SQLite + FTS5  <->  UI (GPUI, nat
 
 **Cold launch** = process creation (from the OS process start time) until the first list row is painted. The window opens DWM-cloaked and is uncloaked after the first frame with list rows (no blank shell). The database preload and sync engine start on a thread while GPUI starts.
 
-`cargo build --release -p tidemail -p tidemail-bench`, then `targeteleaseench-all.exe --db bench.db`, runs both parts and fails if any budget is missed:
+`cargo build --release -p tidemail -p tidemail-bench`, then `target
+eleaseench-all.exe --db bench.db`, runs both parts and fails if any budget is missed:
 
 1. **Rust bench** (`bench` binary, release build): list query, thread open + body load, search query per keystroke (p95), action write (local only, 0 ms network).
 2. **App bench:** the release app runs with `--bench <report.json>`. It measures cold launch, drives j/k (open to reader paint, including the webview content load), drives a scripted scroll (frame times, dropped frames, blank rows), writes the report and exits. Run 3 cold launches; report the worst. Every budget applies to every layout preset: `bench-all` runs the app bench once per preset (`--preset <name>`).
@@ -73,7 +74,8 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
 
 - **Auth:** Google "installed app" OAuth with PKCE and a loopback redirect (`http://127.0.0.1:<random port>`). Scope `https://www.googleapis.com/auth/gmail.modify`. Store refresh tokens in Windows Credential Manager via `keyring`. `client_id` and `client_secret` come from my own Google Cloud project and are read from `%LOCALAPPDATA%\Tidemail\config.toml` (never compiled in). README notes: how to create the project and OAuth client; set the app to "In production" (unverified) so refresh tokens do not expire after 7 days.
 - **Backfill:** newest mail first. `messages.list` pages, then `messages.get` in batch requests (`/batch/gmail/v1`, max 50 calls per batch) with `format=metadata` for the list, bodies fetched in a second pass (`format=full`), newest first, so the inbox fills in seconds.
-  - Body policy: fetch all bodies, newest first. If an account has more than ~300k messages, fetch bodies for the last 2 years only; older bodies are fetched when opened.
+  - Sync window (decided 2026-11-21, replaces "Hybrid"): a new account syncs only the last 6 months of mail, messages and bodies (`messages.list` with `after:`). Settings → Accounts and sync offers "Download older mail": 1 year, 2 years or all mail. Older mail gets metadata; bodies older than 6 months are fetched when opened. The window only widens; sign out removes an account's mail. The panel shows a disclaimer: hours for a big mailbox (Gmail rate limits), runs while open or in the tray, needs internet, uses disk space, older text loads on open.
+  - First sync: the status area shows "First sync N % · needs internet" until the backfill is done (with a window: how far back the stored mail reaches; with all mail: stored / Gmail `messagesTotal`); "Downloading older mail N %" after a wider window was asked for. After sign-in a notice says the last 6 months download first, in the background (window or tray), needs internet, and that older mail is in Accounts and sync.
   - The body pass also fetches inline `cid:` parts under 200 KB, so j/k stays fast on receipts and signatures.
 - **Live changes:** poll `history.list` from the stored `historyId` every 5–10 s while the app runs (window visible or hidden in the tray). If Google returns 404 (history expired), run a partial resync = **full id diff**: list all message ids, fetch new ones, delete removed ones, refetch labels for changed ones.
 - **Action queue:** table `action_queue(id, account_id, kind, payload_json, attempts, next_attempt_at, last_error)`. Exponential backoff, max 8 attempts.
@@ -81,6 +83,7 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
   - **Reconciliation:** when `history.list` brings a change for a thread with pending actions, apply the remote change, then re-apply the pending actions on top. Local state is the truth until Gmail confirms.
   - **Failure:** after 8 attempts mark failed; the next sync restores the Gmail state for that thread; the status area shows "1 action failed" with Retry / Dismiss.
 - **Quota:** respect 250 quota units/user/second; handle 429 and 403 `rateLimitExceeded` with backoff.
+  - Google also enforces a per-minute per-user "Total Query Cost" limit. The client paces with an adaptive token bucket (halve the rate on a quota error, recover slowly, floor 10 units/s); batches carry 10 parts; rate-limited parts retry up to 6 rounds (2–60 s).
 - **Prefetch:** when a message is opened, prefetch bodies of the next 10 messages in the list.
 
 ## Database

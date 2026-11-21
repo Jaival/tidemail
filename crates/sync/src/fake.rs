@@ -164,20 +164,28 @@ impl GmailApi for FakeGmail {
         Ok(Profile {
             email: "me@example.com".into(),
             history_id: s.hid.to_string(),
+            messages_total: Some(s.msgs.len() as i64),
         })
     }
 
     async fn list_message_ids(
         &self,
         label: Option<&str>,
+        query: Option<&str>,
         page_token: Option<&str>,
     ) -> ApiResult<IdPage> {
         let s = self.st();
         Self::check_online(&s)?;
+        // Only the query the sync sends: `after:<epoch seconds>`.
+        let after_ms = query.map(|q| {
+            let secs: i64 = q.strip_prefix("after:").and_then(|n| n.parse().ok()).expect("after:<secs>");
+            secs * 1000
+        });
         let mut v: Vec<&FakeMsg> = s
             .msgs
             .iter()
             .filter(|m| label.is_none_or(|l| m.labels.contains(l)))
+            .filter(|m| after_ms.is_none_or(|a| m.date > a))
             .collect();
         v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
         let start: usize = page_token.map_or(0, |t| t.parse().unwrap());

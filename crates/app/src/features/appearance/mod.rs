@@ -706,10 +706,10 @@ impl Render for Appearance {
                             .text_color(c.muted_fg)
                             .child(note),
                     )
-                    .child(button("appearance-cancel", "Cancel", false, &c).on_click(
+                    .child(ui::button("appearance-cancel", "Cancel", false, &c).on_click(
                         cx.listener(|this, _, w, cx| this.cancel(w, cx)),
                     ))
-                    .child(button("appearance-done", "Done", true, &c).on_click(
+                    .child(ui::button("appearance-done", "Done", true, &c).on_click(
                         cx.listener(|this, _, w, cx| this.done(w, cx)),
                     )),
             );
@@ -727,24 +727,4 @@ impl Render for Appearance {
                 .child(panel),
         )
     }
-}
-
-fn button(id: &'static str, label: &'static str, primary: bool, c: &Colors) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(28.))
-        .px(px(14.))
-        .flex()
-        .items_center()
-        .rounded(px(6.))
-        .text_size(px(ui::TEXT_SM))
-        .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .when(primary, |d| d.bg(c.accent).text_color(c.accent_fg))
-        .when(!primary, |d| {
-            d.border_1()
-                .border_color(c.border)
-                .hover(|s| s.bg(c.hover))
-        })
-        .child(label)
 }

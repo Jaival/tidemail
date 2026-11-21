@@ -13,6 +13,7 @@ use tidemail_db::types::{ActionKind, ThreadPage};
 use crate::{
     actions::*,
     features::{
+        accounts::AccountsPanel,
         appearance::Appearance,
         list::ThreadList,
         palette::{self, toast::Toast, Picker},
@@ -36,6 +37,8 @@ pub struct Shell {
     picker: Option<(Overlay, Entity<Picker>)>,
     /// The Appearance overlay, while it is the top overlay.
     appearance: Option<Entity<Appearance>>,
+    /// The Accounts and sync overlay, while it is the top overlay.
+    accounts: Option<Entity<AccountsPanel>>,
     toast: Option<Toast>,
     toast_timer: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -62,6 +65,7 @@ impl Shell {
                 Toast {
                     text: text.clone(),
                     undo: Some(action_ids.clone()),
+                    error: false,
                 },
                 cx,
             ),
@@ -69,6 +73,15 @@ impl Shell {
                 Toast {
                     text: text.clone(),
                     undo: None,
+                    error: true,
+                },
+                cx,
+            ),
+            StateEvent::Notice { text } => this.show_toast(
+                Toast {
+                    text: text.clone(),
+                    undo: None,
+                    error: false,
                 },
                 cx,
             ),
@@ -98,6 +111,7 @@ impl Shell {
             focus,
             picker: None,
             appearance: None,
+            accounts: None,
             toast: None,
             toast_timer: None,
             _subscriptions: vec![sub, leave, observe],
@@ -108,10 +122,11 @@ impl Shell {
     /// the shell when no picker is left.
     fn sync_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let top = self.state.read(cx).top_overlay().cloned();
-        let shown = match (&self.picker, &self.appearance) {
-            (Some((o, _)), _) => Some(o.clone()),
-            (None, Some(a)) => Some(a.read(cx).overlay()),
-            (None, None) => None,
+        let shown = match (&self.picker, &self.appearance, &self.accounts) {
+            (Some((o, _)), ..) => Some(o.clone()),
+            (None, Some(a), _) => Some(a.read(cx).overlay()),
+            (None, None, Some(_)) => Some(Overlay::Accounts),
+            (None, None, None) => None,
         };
         if shown == top {
             return;
@@ -122,9 +137,15 @@ impl Shell {
             })),
             _ => None,
         };
+        self.accounts = match top {
+            Some(Overlay::Accounts) => Some(self.accounts.take().unwrap_or_else(|| {
+                cx.new(|cx| AccountsPanel::new(self.state.clone(), window, cx))
+            })),
+            _ => None,
+        };
         self.picker =
             top.and_then(|o| palette::open(&o, &self.state, window, cx).map(|picker| (o, picker)));
-        if self.picker.is_none() && self.appearance.is_none() {
+        if self.picker.is_none() && self.appearance.is_none() && self.accounts.is_none() {
             self.focus.focus(window, cx);
         }
         cx.notify();
@@ -132,10 +153,14 @@ impl Shell {
 
     /// Show a toast for 5 s (replaces the current one).
     fn show_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        let lifetime = match toast.undo {
+            Some(_) => palette::toast::LIFETIME,
+            None => palette::toast::NOTICE_LIFETIME,
+        };
         self.toast = Some(toast);
         self.toast_timer = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
-                .timer(palette::toast::LIFETIME)
+                .timer(lifetime)
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.toast = None;
@@ -224,7 +249,7 @@ impl Render for Shell {
         let mut context = KeyContext::default();
         // While a picker or the search input has focus the single-key
         // bindings must not match: the shell context is replaced.
-        context.add(if self.picker.is_some() || self.appearance.is_some() {
+        context.add(if self.picker.is_some() || self.appearance.is_some() || self.accounts.is_some() {
             PICKER_CONTEXT
         } else if self.search.read(cx).focused {
             SEARCH_CONTEXT
@@ -352,6 +377,7 @@ impl Render for Shell {
             .when(spec.hint_bar, |d| d.child(self.hint_bar(cx)))
             .when_some(self.picker.as_ref(), |d, (_, p)| d.child(p.clone()))
             .when_some(self.appearance.clone(), |d, a| d.child(a))
+            .when_some(self.accounts.clone(), |d, a| d.child(a))
     }
 }
 

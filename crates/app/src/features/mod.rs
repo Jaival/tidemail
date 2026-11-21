@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod appearance;
 pub mod list;
 pub mod palette;

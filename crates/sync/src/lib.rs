@@ -25,7 +25,8 @@ use std::time::Duration;
 
 use tidemail_db::rusqlite::{params, Connection, OptionalExtension};
 use tidemail_db::types::{
-    Account, AccountSync, AccountSyncState, ActionRequest, ActionTicket, FailedAction, SyncStatus,
+    Account, AccountSync, AccountSyncState, ActionRequest, ActionTicket, Backfill, FailedAction,
+    SyncStatus,
 };
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::{mpsc, Notify};
@@ -68,9 +69,15 @@ pub struct Config {
     /// Pause after each `messages.get` batch (quota: 250 units/s, a 50-batch
     /// of metadata gets costs 250).
     pub batch_gap: Duration,
-    /// Above this many messages, bodies older than `body_window` are deferred.
+    /// Above this many messages, bodies older than `body_window` are deferred
+    /// (fetched when opened). Default: every account, 6 months (decided
+    /// 2026-11-21: all metadata, recent bodies).
     pub body_policy_threshold: u64,
     pub body_window: Duration,
+    /// A new account's backfill lists only this much recent mail; settings
+    /// extend it (`Engine::extend_sync`). `None`: all mail. Default 183 days
+    /// (decided 2026-11-21).
+    pub sync_window: Option<Duration>,
     /// Message ids queued for prefetch before new ones are dropped.
     pub prefetch_queue: usize,
 }
@@ -82,8 +89,9 @@ impl Default for Config {
             undo_delay: Duration::from_secs(5),
             max_attempts: 8,
             batch_gap: Duration::from_secs(1),
-            body_policy_threshold: 300_000,
-            body_window: Duration::from_secs(2 * 365 * 24 * 3600),
+            body_policy_threshold: 0,
+            body_window: Duration::from_secs(183 * 24 * 3600),
+            sync_window: Some(Duration::from_secs(183 * 24 * 3600)),
             prefetch_queue: 512,
         }
     }
@@ -253,6 +261,22 @@ impl Engine {
         self.inner.status()
     }
 
+    /// Download older mail: the backfill lists back to `from` (epoch ms;
+    /// `None`: all mail). Only widens the window. The backfill starts again
+    /// from the newest page and skips ids already stored.
+    pub fn extend_sync(&self, account_id: i64, from: Option<i64>) -> Result<()> {
+        let changed = self.inner.fg().execute(
+            "UPDATE sync_state SET sync_from = ?2, backfill_cursor = NULL \
+             WHERE account_id = ?1 AND sync_from IS NOT NULL AND (?2 IS NULL OR ?2 < sync_from)",
+            params![account_id, from],
+        )?;
+        if changed > 0 {
+            self.inner.notifier.status_changed(self.inner.status());
+            self.inner.account_wake(account_id).notify_one();
+        }
+        Ok(())
+    }
+
     /// Browser sign-in, insert the account, start its backfill.
     pub async fn add_account(&self) -> Result<Account> {
         let inner = self.inner.clone();
@@ -322,22 +346,75 @@ impl Inner {
         let states = self.states.lock().expect("lock").clone();
         let conn = self.fg();
         let q = || -> Result<SyncStatus> {
-            let accounts = conn
+            let rows = conn
                 .prepare_cached(
-                    "SELECT a.id, s.last_sync_at FROM accounts a \
-                     LEFT JOIN sync_state s ON s.account_id = a.id ORDER BY a.sort_order, a.id",
+                    "SELECT a.id, s.last_sync_at, s.sync_from, \
+                     s.account_id IS NOT NULL AND s.backfill_cursor IS NOT 'done', \
+                     s.messages_total \
+                     FROM accounts a LEFT JOIN sync_state s ON s.account_id = a.id \
+                     ORDER BY a.sort_order, a.id",
                 )?
                 .query_map([], |r| {
-                    Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                        r.get::<_, bool>(3)?,
+                        r.get::<_, Option<i64>>(4)?,
+                    ))
                 })?
-                .map(|r| {
-                    r.map(|(id, last)| AccountSync {
-                        account_id: id,
-                        state: states.get(&id).copied().unwrap_or(AccountSyncState::Idle),
-                        last_sync_at: last,
-                    })
-                })
                 .collect::<std::result::Result<Vec<_>, _>>()?;
+            let now = self.clock.now_ms();
+            let mut accounts = Vec::with_capacity(rows.len());
+            for (id, last, from, running, total) in rows {
+                let percent = match (running, from) {
+                    (false, _) => None,
+                    // A window: how far back (newest first) the stored mail reaches.
+                    (true, Some(from)) => {
+                        let oldest: Option<i64> = conn
+                            .prepare_cached(
+                                "SELECT min(internal_date) FROM messages \
+                                 WHERE account_id = ?1 AND internal_date >= ?2",
+                            )?
+                            .query_row(params![id, from], |r| r.get(0))?;
+                        let span = (now - from).max(1);
+                        Some(oldest.map_or(0, |o| (now - o).clamp(0, span) * 100 / span))
+                    }
+                    // All mail: stored against Gmail's total.
+                    (true, None) => match total.filter(|t| *t > 0) {
+                        None => None,
+                        Some(t) => {
+                            let stored: i64 = conn
+                                .prepare_cached(
+                                    "SELECT count(*) FROM messages WHERE account_id = ?1",
+                                )?
+                                .query_row([id], |r| r.get(0))?;
+                            Some(stored * 100 / t)
+                        }
+                    },
+                };
+                // Wider than the default window (30 days of slack: the first
+                // sync of a big mailbox can run for days).
+                let default_from = self
+                    .cfg
+                    .sync_window
+                    .map(|w| now - w.as_millis() as i64 - 30 * 86_400_000);
+                let older = match (from, default_from) {
+                    (_, None) => false,
+                    (None, Some(_)) => true,
+                    (Some(f), Some(d)) => f < d,
+                };
+                accounts.push(AccountSync {
+                    account_id: id,
+                    state: states.get(&id).copied().unwrap_or(AccountSyncState::Idle),
+                    last_sync_at: last,
+                    sync_from: from,
+                    backfill: percent.map(|p| Backfill {
+                        percent: p.clamp(0, 99) as u8,
+                        older,
+                    }),
+                });
+            }
             let pending: u32 = conn
                 .prepare_cached("SELECT count(*) FROM action_queue WHERE failed = 0")?
                 .query_row([], |r| r.get(0))?;

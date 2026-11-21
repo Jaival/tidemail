@@ -95,6 +95,8 @@ impl Search {
     fn run(&mut self, new_query: bool, cx: &mut Context<Self>) {
         let query = self.input.read(cx).value().trim().to_string();
         self.active = !query.is_empty();
+        let active = self.active;
+        self.state.update(cx, |s, _| s.searching = active);
         if !self.active {
             self.task = None;
             self.results.update(cx, |r, cx| r.set(Ok(Vec::new()), true, cx));

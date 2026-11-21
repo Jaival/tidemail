@@ -339,6 +339,25 @@ fn palette_items(state: &Entity<AppState>, cx: &App) -> Vec<Item> {
             state.update(cx, |s, cx| s.push_overlay(Overlay::Appearance { fonts }, cx))
         }));
     }
+    {
+        let state = state.clone();
+        let accounts = state.clone();
+        items.push(Item::new("Accounts and sync…", move |_, cx| {
+            accounts.update(cx, |s, cx| s.push_overlay(Overlay::Accounts, cx))
+        }));
+        items.push(Item::new("Add account…", move |_, cx| {
+            state.update(cx, |s, cx| s.add_account(cx))
+        }));
+    }
+    for a in &state.read(cx).accounts {
+        let (id, state) = (a.id, state.clone());
+        items.push(
+            Item::new(format!("Sign out: {}", a.email), move |_, cx| {
+                state.update(cx, |s, cx| s.sign_out(id, cx))
+            })
+            .dot(Some(format::parse_color(&a.color))),
+        );
+    }
     for n in PREFETCH_CHOICES {
         let state = state.clone();
         items.push(
@@ -495,7 +514,7 @@ pub fn open(
             account_id,
         } => ("Move to…", move_items(state, *thread_id, *account_id, cx)),
         Overlay::GoPicker => ("Go to label…", go_items(state, cx)),
-        Overlay::Toast | Overlay::Appearance { .. } => return None,
+        Overlay::Toast | Overlay::Appearance { .. } | Overlay::Accounts => return None,
     };
     let picker = cx.new(|cx| {
         Picker::new(

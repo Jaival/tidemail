@@ -5,6 +5,8 @@ use tray_icon::{
     Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+
 use crate::events::{AppEvent, EventTx};
 
 /// Keep the returned icon alive; dropping it removes it from the tray.
@@ -14,7 +16,9 @@ pub fn install(tx: EventTx) -> Result<TrayIcon, Box<dyn std::error::Error>> {
     let menu = Menu::new();
     menu.append(&show)?;
     menu.append(&quit)?;
-    let icon = Icon::from_rgba([90, 78, 221, 255].repeat(16 * 16), 16, 16)?;
+    // Resource 1 (`assets/tidemail.rc`) at the small-icon size for this DPI.
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
+    let icon = Icon::from_resource(1, Some((size, size)))?;
     let tray = TrayIconBuilder::new()
         .with_tooltip("Tidemail")
         .with_icon(icon)

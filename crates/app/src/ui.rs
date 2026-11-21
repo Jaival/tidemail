@@ -5,7 +5,7 @@
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{prelude::FluentBuilder, *};
 
-use crate::theme::colors;
+use crate::theme::{colors, Colors};
 
 /// Text sizes in px.
 pub const TEXT_XS: f32 = 11.0;
@@ -147,6 +147,33 @@ pub fn dot(color: Option<Hsla>, size: f32) -> Div {
         .flex_none()
         .rounded_full()
         .when_some(color, |d, c| d.bg(c))
+}
+
+/// A text button for panels: `primary` is filled with the accent, the
+/// others are outlined.
+pub fn button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    primary: bool,
+    c: &Colors,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .px(px(14.))
+        .flex()
+        .items_center()
+        .rounded(px(6.))
+        .text_size(px(TEXT_SM))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .when(primary, |d| d.bg(c.accent).text_color(c.accent_fg))
+        .when(!primary, |d| {
+            d.border_1()
+                .border_color(c.border)
+                .hover(|s| s.bg(c.hover))
+        })
+        .child(label.into())
 }
 
 #[cfg(test)]

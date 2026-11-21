@@ -233,14 +233,15 @@ Then Phase 2 as before.
 
 ## Open decisions
 
-- WebView2 user data folder: still the wry default (next to the exe). Move it under `%LOCALAPPDATA%\Tidemail` before the app is installed anywhere else; decide whether the cache is kept between runs.
-
-- Google OAuth client setup is required before account sync can be exercised.
+- From Phase 2:
+  - The OAuth app is in Testing mode: refresh tokens expire after 7 days. "In production" needs a homepage and a privacy policy URL on the consent screen. Decide before daily use.
+  - The per-minute quota makes a 66k mailbox take hours. Accepted for now (background + notice).
+  - 3 messages have `internal_date = 0` on the real DB. They sort last. Cause not checked.
 - Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
 - Phase 4 projects/classification remain intentionally undesigned.
 - From 1G-U2:
   - Ctrl+Z while the search input has focus is the input's undo, not the toast's undo. Keep, or bind `Undo` in `TidemailSearch`?
-  - Attachment errors show the raw engine text ("Download failed: config: cannot read C:\...\config.toml …"). Fine for development; give it a user-facing message before release.
+  - Attachment errors: done in Phase 2 (`format::user_error`).
   - Under an overlay the webview is hidden and the paper area shows blank (dimmed). A snapshot of the page would look better; WebView2 `CapturePreview` costs a capture per overlay open. Not done.
   - One unexplained stray Archive during the scripted pass (Tide light, after a run that clicked "Load images" and pressed k): not reproduced in a replay or in any later run. Cause unknown (scripted input runs through the real keyboard queue, so outside input can reach the app); watch for it.
 - From 1G-U3:
@@ -303,9 +304,56 @@ Checks: `cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D
 
 Rust bench (same session): open + first page 2.2 ms, list page p95 0.16 ms, thread open p95 0.17–0.21 ms, search p95 12.8 ms, action write p95 0.57–0.65 ms (max 15.3–16.6 ms; the check is on p95). The 1G-U3 exe right after: worst 318–361 ms, one 453 ms Tide outlier in its first run.
 
+## Phase 2 "Connect" status (branch `phase2`, in progress, 2026-11-21)
+
+Done:
+- WebView2 user data folder: `%LOCALAPPDATA%\Tidemail\WebView2`, one folder for every DB, kept between runs (`reader/host.rs`, `WebContext`).
+- Accounts in the UI: Ctrl+K "Add account…" (browser sign-in, PKCE loopback) and "Sign out: <email>" per account. Notices use a new toast kind without Undo (12 s).
+- User-facing errors: `format::user_error` maps engine errors (setup, offline, sign-in, rate limit, keyring, I/O) to short sentences; raw text goes to stderr. Used by attachment download, action apply / undo and sign-in. `ApiError::Setup` names the missing `config.toml`. The provider retries reading the config after a failure.
+- Real Gmail sign-in works (one account). The refresh token is in Credential Manager (`<email>.Tidemail`).
+- Quota: the per-minute "Total Query Cost" limit stalled the first backfill. Fixed with batches of 10 parts, 6 retry rounds (2–60 s) and an adaptive token bucket in `gmail/quota.rs` (halve on a quota error, +0.5 units/s per s, floor 10). `TIDEMAIL_SYNC_LOG=1` logs each retry round.
+- Sync window (decided 2026-11-21, replaces "Hybrid"): a new account lists only the last 6 months (`Config::sync_window`, `sync_state.sync_from`, Gmail `after:` query); bodies stay 6 months (`body_window`), older ones load on open. Migration 0007 adds `sync_from` plus an index `messages(account_id, internal_date)` and moves accounts still in their first backfill to the window (cursor reset; stored mail stays). `full_diff` lists with the same query and never deletes stored mail older than the window (1 day margin). `Engine::extend_sync` only widens. New overlay `features/accounts` ("Accounts and sync…" in Ctrl+K): per account how far back mail goes, progress, Download older mail 1 year / 2 years / All mail, and the disclaimer. `ui::button` moved from appearance into ui.rs. Tests: 3 new sync tests (window, extend, full diff keeps old mail), status text test.
+- First-sync info: migration 0005 stores Gmail `messagesTotal`; `AccountSync::backfill` (percent, older) drives "First sync N %" / "Downloading older mail N %" (the account furthest behind). Window progress is by date (oldest stored mail in the window), all-mail progress is stored / total. Sign-in notice names the 6 months and the panel.
+- `cargo run -p tidemail-gmail --example profile -- <email>` prints the mailbox totals (66,567 messages / 64,649 threads on the test account).
+- Logo: concept B "Rising tide" (`docs/design/logo/tidemail.svg`, mockups in `mockups.html`). `scripts/logo/render.py` (Pillow) writes `crates/app/assets/logo/tidemail.ico` and PNGs; `build.rs` embeds it as resource 1 (window, taskbar, tray).
+
+- Snippets: Gmail sends `snippet` HTML-escaped; the list showed `Don&#39;t`. The adapter decodes entities at the boundary (`unescape_snippet`); migration 0006 fixes rows already stored.
+- Live Gmail checks (2026-11-21, on real mail): archive + undo within 5 s never reached Gmail (queue row removed, INBOX restored); star reached Gmail after 23 s (undo window + quota pacing) and unstar after 5 s, both confirmed on the Gmail side; a 31 KB PDF attachment downloaded to `attachments/1/75/`, size matches, opened in the system viewer.
+- Fix found by the live check: archiving from search results moved the selection to the next row of the hidden inbox list, so the reader showed a thread that was not in the results and undo did not bring it back. `AppState::searching` (set by `Search::run`) stops the list's advance while a query is active.
+- Live run (2026-11-21): sync restarted; status line shows "First sync 14 % · needs internet"; the window/taskbar class icon is the new logo (checked with `WM_GETICON`/`GCLP_HICON`). Bodies lag behind metadata under the quota (snapshot: 10,111 messages, 363 bodies, 7,462 waiting, 2,286 deferred).
+
+### Bench (2026-11-21, release exe, sync running at ~0.3 % CPU)
+
+bench.db, second run: all PASS. Cold launch worst 280 / 287 / 283 ms (Tide / Command / Paper), j/k p95 8.8 / 6.6 / 8.3 ms, 0 / 1800 dropped. Rust: open + first page 2.7 ms, search p95 11.7 ms, action write p95 0.44 ms. (First run: open + first page 496 ms because migration 0006 ran on that open.)
+
+Real DB (SQLite backup snapshot of `mail.db`, 10,111 messages, `D:\t3\real-snap.db`), three runs:
+
+| Metric | Run 1 | Run 2 | Run 3 | Budget |
+|---|---|---|---|---|
+| cold launch worst (T / C / P) | PASS | 265 / 246 / 242 ms | PASS | 400 ms |
+| j/k open to paint p95 | PASS | 25.0 / 21.0 / 25.0 ms | PASS | 50 ms |
+| scroll dropped (Tide) | 0 | **580 / 1800 (max 34.5 ms) FAIL** | 0 | ≤ 2 % |
+| scroll dropped (Command, Paper) | 0 | 0 | 0 | ≤ 2 % |
+
+Rust on the real DB: open + first page 1.6 ms, list p95 0.14 ms, thread open p95 0.17 ms, search p95 6.0 ms, action write p95 0.51 ms.
+
+Scroll drops: 2 of 5 full runs today dropped frames, always in Tide (the first preset of a run), at ~34 ms per frame (half rate), never repeated in the next run. Same pattern as the busy-machine note in 1G-U1. Not fixed; the cold-launch worry from earlier (761–784 ms) does not reproduce on the release exe (232–265 ms).
+
+### Bench after the sync window (2026-11-21, `shots/bench-*-w*.txt`)
+
+- bench.db: run 1 failed only "open db + first inbox page" (512 ms: migration 0007 on first open); run 2 passes every budget (cold launch 281–322 ms).
+- Real DB (fresh snapshot, 17.7k messages, ~3k bodies), live sync running: Paper failed j/k p95 (53.9 ms) and one cold launch per run (678 / 546 ms). Tide and Command passed.
+- Real DB with the live app stopped: run 3 had the intermittent scroll drop in all presets (240–441 / 1800, frames at ~36 ms); run 4 passes every budget (cold launch ≤ 302 ms, j/k p95 ≤ 35.4 ms, 0 dropped).
+- So the done-condition holds on a quiet machine. A syncing app on the same PC pushes Paper j/k over budget; worth a look before release (Paper swaps bigger bodies).
+
+Not done yet:
+- Let the first sync finish (hours, quota bound). Check the tray icon and the long sign-in notice (may wrap or clip in the toast) by eye.
+- Re-sanitize: only testable by raising the sanitizer version, which re-fetches every stored body; skipped while the first sync runs.
+- Enter in the search box right after typing can arrive before the results; it then opens nothing (a second Enter works). Open the first hit when the results land, if it matters.
+
 ## Next
 
-1. Phase 2 as before.
+1. Finish Phase 2 (see "Not done yet" above).
 2. Open from 1G-U3b:
    - `plainTextMono` defaults to on (the plan listed the interface font for plain-text mail). On, because plain-text mail is where keys and logs arrive and masking only works in the code font. Flip the default if plain-text letters read worse in mono.
    - Raw headers (the plan's other code-font use) do not exist yet; use the code font when they do.

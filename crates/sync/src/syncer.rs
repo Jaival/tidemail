@@ -149,10 +149,11 @@ impl AccountLoop {
             self.poll(&*api).await?;
             self.last_poll = Some(Instant::now());
         }
-        if self.backfill_page(&*api).await?
-            || self.body_batch(&*api).await?
-            || self.resanitize_batch(&*api).await?
-        {
+        // Bodies of recent mail arrive alongside the metadata backfill, not
+        // after it (a big mailbox takes hours of metadata).
+        let listed = self.backfill_page(&*api).await?;
+        let bodies = self.body_batch(&*api).await?;
+        if listed || bodies || self.resanitize_batch(&*api).await? {
             return Ok(Step::More);
         }
         Ok(Step::Idle)
@@ -161,9 +162,14 @@ impl AccountLoop {
     async fn init(&self, api: &dyn GmailApi) -> Result<()> {
         let has_history: bool = {
             let conn = lock(&self.db);
+            // A new account lists only the default window of recent mail.
+            let from = self
+                .cfg()
+                .sync_window
+                .map(|w| self.inner.clock.now_ms() - w.as_millis() as i64);
             conn.execute(
-                "INSERT OR IGNORE INTO sync_state (account_id) VALUES (?1)",
-                [self.id],
+                "INSERT OR IGNORE INTO sync_state (account_id, sync_from) VALUES (?1, ?2)",
+                params![self.id, from],
             )?;
             conn.query_row(
                 "SELECT history_id IS NOT NULL FROM sync_state WHERE account_id = ?1",
@@ -171,17 +177,31 @@ impl AccountLoop {
                 |r| r.get(0),
             )?
         };
+        // Read before listing, so changes during the backfill are not missed.
+        // The total is refreshed on every start (status line progress).
+        let profile = api.get_profile().await?;
         if !has_history {
-            // Read before listing, so changes during the backfill are not missed.
-            let profile = api.get_profile().await?;
             self.set_history(&profile.history_id)?;
         }
+        lock(&self.db).execute(
+            "UPDATE sync_state SET messages_total = ?2 WHERE account_id = ?1",
+            params![self.id, profile.messages_total],
+        )?;
         self.sync_labels(api).await
     }
 
     async fn sync_labels(&self, api: &dyn GmailApi) -> Result<()> {
         let labels = api.list_labels().await?;
         store::sync_labels(&lock(&self.db), self.id, &labels)
+    }
+
+    /// Oldest mail to list (epoch ms); `None`: all mail.
+    fn sync_from(&self) -> Result<Option<i64>> {
+        Ok(lock(&self.db).query_row(
+            "SELECT sync_from FROM sync_state WHERE account_id = ?1",
+            [self.id],
+            |r| r.get(0),
+        )?)
     }
 
     fn set_history(&self, history_id: &str) -> Result<()> {
@@ -217,7 +237,8 @@ impl AccountLoop {
             .as_deref()
             .and_then(|c| c.strip_prefix("meta:"))
             .filter(|t| !t.is_empty());
-        let page = api.list_message_ids(None, token).await?;
+        let query = self.sync_from()?.map(window_query);
+        let page = api.list_message_ids(None, query.as_deref(), token).await?;
         let new_ids: Vec<String> = {
             let conn = lock(&self.db);
             let mut st = conn
@@ -241,9 +262,8 @@ impl AccountLoop {
             "UPDATE sync_state SET backfill_cursor = ?2 WHERE account_id = ?1",
             params![self.id, next],
         )?;
-        if page.next_page_token.is_none() {
-            self.apply_body_policy(&conn)?;
-        }
+        // Every page: the body pass must not fetch old bodies in between.
+        self.apply_body_policy(&conn)?;
         Ok(true)
     }
 
@@ -464,18 +484,32 @@ impl AccountLoop {
     async fn full_diff(&self, api: &dyn GmailApi) -> Result<()> {
         self.inner.set_state(self.id, AccountSyncState::Syncing);
         let history_id = api.get_profile().await?.history_id;
-        let remote = list_all(api, None).await?;
-        let local: HashSet<String> = {
+        let from = self.sync_from()?;
+        let query = from.map(window_query);
+        let remote = list_all(api, None, query.as_deref()).await?;
+        // Stored mail older than the window is not in `remote`; it is not
+        // deleted. A day of margin covers how Gmail rounds `after:`.
+        let keep_before = from.map_or(i64::MIN, |f| f + 86_400_000);
+        let (local, in_window): (HashSet<String>, HashSet<String>) = {
             let conn = lock(&self.db);
-            let mut st =
-                conn.prepare_cached("SELECT gmail_id FROM messages WHERE account_id = ?1")?;
-            let rows = st.query_map([self.id], |r| r.get(0))?;
-            rows.collect::<std::result::Result<_, _>>()?
+            let mut st = conn.prepare_cached(
+                "SELECT gmail_id, internal_date FROM messages WHERE account_id = ?1",
+            )?;
+            let rows = st.query_map([self.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            let (mut all, mut window) = (HashSet::new(), HashSet::new());
+            for row in rows {
+                let (id, date) = row?;
+                if date > keep_before {
+                    window.insert(id.clone());
+                }
+                all.insert(id);
+            }
+            (all, window)
         };
         let mut fetch: BTreeSet<String> = remote.difference(&local).cloned().collect();
-        let removed: Vec<String> = local.difference(&remote).cloned().collect();
+        let removed: Vec<String> = in_window.difference(&remote).cloned().collect();
         for label in DIFF_LABELS {
-            let remote_l = list_all(api, Some(label)).await?;
+            let remote_l = list_all(api, Some(label), query.as_deref()).await?;
             let local_l: HashSet<String> = {
                 let conn = lock(&self.db);
                 let mut st = conn.prepare_cached(
@@ -506,11 +540,20 @@ fn thread_by_gmail(conn: &Connection, account_id: i64, gmail_thread: &str) -> Re
         .optional()?)
 }
 
-async fn list_all(api: &dyn GmailApi, label: Option<&str>) -> Result<HashSet<String>> {
+/// Gmail search for mail newer than `from_ms`.
+fn window_query(from_ms: i64) -> String {
+    format!("after:{}", from_ms.div_euclid(1000))
+}
+
+async fn list_all(
+    api: &dyn GmailApi,
+    label: Option<&str>,
+    query: Option<&str>,
+) -> Result<HashSet<String>> {
     let mut out = HashSet::new();
     let mut token: Option<String> = None;
     loop {
-        let page = api.list_message_ids(label, token.as_deref()).await?;
+        let page = api.list_message_ids(label, query, token.as_deref()).await?;
         out.extend(page.ids.into_iter().map(|m| m.id));
         token = page.next_page_token;
         if token.is_none() {

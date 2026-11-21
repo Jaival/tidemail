@@ -1,0 +1,2 @@
+// Icon 1: GPUI loads it for the window and taskbar; the tray loads it too.
+1 ICON "logo/tidemail.ico"

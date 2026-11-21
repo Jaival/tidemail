@@ -26,6 +26,9 @@ pub enum ApiError {
     HistoryExpired,
     #[error("rate limited")]
     RateLimited,
+    /// Gmail is not set up (`config.toml` missing or invalid).
+    #[error("setup: {0}")]
+    Setup(String),
     #[error("{0}")]
     Other(String),
 }
@@ -37,6 +40,8 @@ pub struct Profile {
     pub email: String,
     /// Current mailbox history id; start point for `list_history`.
     pub history_id: String,
+    /// Messages in the mailbox (spam and trash included), if Gmail says.
+    pub messages_total: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,10 +131,12 @@ pub struct RemoteLabel {
 #[async_trait]
 pub trait GmailApi: Send + Sync {
     async fn get_profile(&self) -> ApiResult<Profile>;
-    /// `messages.list`; `label` is a label id filter.
+    /// `messages.list`; `label` is a label id filter, `query` a Gmail search
+    /// (the sync only sends `after:<epoch seconds>`).
     async fn list_message_ids(
         &self,
         label: Option<&str>,
+        query: Option<&str>,
         page_token: Option<&str>,
     ) -> ApiResult<IdPage>;
     async fn get_messages(&self, ids: &[String], format: Format) -> ApiResult<Vec<RemoteMessage>>;

@@ -27,6 +27,15 @@ pub fn text(s: &SyncStatus, now_ms: i64) -> String {
         "Offline".into()
     } else if any(AccountSyncState::AuthError) {
         "Sign-in needed".into()
+    } else if let Some(b) = s
+        .accounts
+        .iter()
+        .filter_map(|a| a.backfill)
+        .min_by_key(|b| b.percent)
+    {
+        // The account furthest behind.
+        let what = if b.older { "Downloading older mail" } else { "First sync" };
+        format!("{what} {} % · needs internet", b.percent)
     } else if any(AccountSyncState::Syncing) {
         "Syncing…".into()
     } else {
@@ -94,7 +103,9 @@ pub fn line(state: &AppState, cx: &App) -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use tidemail_db::types::{AccountSync, AccountSyncState, ActionKind, FailedAction, SyncStatus};
+    use tidemail_db::types::{
+        AccountSync, AccountSyncState, ActionKind, Backfill, FailedAction, SyncStatus,
+    };
 
     use super::text;
 
@@ -103,6 +114,8 @@ mod tests {
             account_id: 1,
             state,
             last_sync_at: at,
+            sync_from: None,
+            backfill: None,
         }
     }
 
@@ -156,6 +169,31 @@ mod tests {
         );
         assert_eq!(text(&status(vec![off.clone()], 3, 1), 9), "1 action failed");
         assert_eq!(text(&status(vec![off], 0, 2), 9), "2 actions failed");
+    }
+
+    #[test]
+    fn backfill_shows_the_account_furthest_behind() {
+        let mut a = account(AccountSyncState::Syncing, None);
+        a.backfill = Some(Backfill {
+            percent: 40,
+            older: false,
+        });
+        let mut b = account(AccountSyncState::Idle, Some(1));
+        b.backfill = Some(Backfill {
+            percent: 10,
+            older: false,
+        });
+        let s = status(vec![a.clone(), b.clone()], 0, 0);
+        assert_eq!(text(&s, 9), "First sync 10 % · needs internet");
+        b.backfill = Some(Backfill {
+            percent: 10,
+            older: true,
+        });
+        let s = status(vec![a.clone(), b], 0, 0);
+        assert_eq!(text(&s, 9), "Downloading older mail 10 % · needs internet");
+        let mut off = a;
+        off.state = AccountSyncState::Offline;
+        assert_eq!(text(&status(vec![off], 0, 0), 9), "Offline");
     }
 
     #[test]

@@ -360,7 +360,7 @@ impl Reader {
                         cx.open_with_system(&path);
                         None
                     }
-                    Err(e) => Some(format!("Download failed: {e}").into()),
+                    Err(e) => Some(format!("Download failed. {}", crate::format::user_error(&e)).into()),
                 };
                 cx.notify();
             });

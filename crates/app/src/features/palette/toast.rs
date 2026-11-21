@@ -11,11 +11,14 @@ use crate::{theme::colors, ui};
 
 /// How long a toast stays (also the undo window of the engine).
 pub const LIFETIME: Duration = Duration::from_secs(5);
+/// Notices and errors have no undo window; they stay long enough to read.
+pub const NOTICE_LIFETIME: Duration = Duration::from_secs(12);
 
 pub struct Toast {
     pub text: SharedString,
-    /// Queue rows that `AppState::undo` reverts; `None` for errors.
+    /// Queue rows that `AppState::undo` reverts; `None` for errors and notices.
     pub undo: Option<Vec<i64>>,
+    pub error: bool,
 }
 
 /// Text, then an "Undo" button with its key. `on_undo` runs on click.
@@ -25,7 +28,7 @@ pub fn content(
     cx: &App,
 ) -> Div {
     let c = colors(cx);
-    let error = toast.undo.is_none();
+    let error = toast.error;
     div()
         .flex()
         .items_center()
@@ -36,7 +39,7 @@ pub fn content(
                 .text_color(if error { c.danger } else { c.fg })
                 .child(toast.text.clone()),
         )
-        .when(!error, |d| {
+        .when(toast.undo.is_some(), |d| {
             d.child(
                 div()
                     .id("toast-undo")

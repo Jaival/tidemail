@@ -15,6 +15,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_threads_last_date.sql"),
     include_str!("../migrations/0003_bodies_sanitizer_version.sql"),
     include_str!("../migrations/0004_threads_unread.sql"),
+    include_str!("../migrations/0005_sync_state_total.sql"),
+    include_str!("../migrations/0006_unescape_snippets.sql"),
+    include_str!("../migrations/0007_sync_window.sql"),
 ];
 
 /// Schema version this build expects.
