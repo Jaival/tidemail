@@ -1,0 +1,12 @@
+--- /c/Users/saija/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-pre-windows-0.3.11/src/directx_renderer.rs	2006-07-24 03:21:28.000000000 +0200
++++ src/directx_renderer.rs	2026-11-19 20:27:38.528503100 +0100
+@@ -1014,7 +1014,8 @@
+ impl DirectComposition {
+     pub fn new(dxgi_device: &IDXGIDevice, hwnd: HWND) -> Result<Self> {
+         let comp_device = get_comp_device(dxgi_device)?;
+-        let comp_target = unsafe { comp_device.CreateTargetForHwnd(hwnd, true) }?;
++        // Tidemail: not topmost, so child windows (the reader WebView2) draw above GPUI.
++        let comp_target = unsafe { comp_device.CreateTargetForHwnd(hwnd, false) }?;
+         let comp_visual = unsafe { comp_device.CreateVisual() }?;
+ 
+         Ok(Self {

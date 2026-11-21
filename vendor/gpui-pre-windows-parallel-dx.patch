@@ -1,0 +1,50 @@
+--- /c/Users/saija/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f//gpui-pre-windows-0.3.11/src/platform.rs	2006-07-24 03:21:28.000000000 +0200
++++ src/platform.rs	2026-11-06 01:32:14.297264700 +0100
+@@ -136,6 +136,13 @@
+     }
+ }
+ 
++struct SendDevices(Result<DirectXDevices>);
++// SAFETY: the D3D11 device is created without SINGLETHREADED, so it and the
++// DXGI factory are free-threaded; ownership moves to the main thread once.
++unsafe impl Send for SendDevices {}
++static PRECREATED: std::sync::Mutex<Option<std::thread::JoinHandle<SendDevices>>> =
++    std::sync::Mutex::new(None);
++
+ struct PowerRequest {
+     handle: HANDLE,
+     // `PowerCreateRequest` retains a pointer into the reason string for the
+@@ -183,6 +190,11 @@
+ 
+ impl WindowsPlatform {
+     pub fn new(headless: bool) -> Result<Self> {
++        if !headless {
++            *PRECREATED.lock().unwrap() = Some(std::thread::spawn(|| {
++                SendDevices(DirectXDevices::new())
++            }));
++        }
+         unsafe {
+             OleInitialize(None).context("unable to initialize Windows OLE")?;
+         }
+@@ -202,7 +214,6 @@
+                 None,
+             )
+         };
+-
+         let (main_sender, main_receiver) = PriorityQueueReceiver::new();
+         let validation_number = if usize::BITS == 64 {
+             rand::random::<u64>() as usize
+@@ -421,7 +432,12 @@
+ 
+     /// Creates the DirectX devices that windows draw with, and starts vsync.
+     fn attach_gpu(&self) -> Result<()> {
+-        let devices = DirectXDevices::new().context("Creating DirectX devices")?;
++        let pre = PRECREATED.lock().unwrap().take();
++        let devices = match pre {
++            Some(h) => h.join().map_err(|_| anyhow!("device thread panicked"))?.0,
++            None => DirectXDevices::new(),
++        }
++        .context("Creating DirectX devices")?;
+         if let Some(text_system) = &self.direct_write_text_system {
+             text_system.handle_gpu_lost(&devices)?;
+         }

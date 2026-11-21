@@ -19,3 +19,7 @@ tidemail-search.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tidemail-sync.workspace = true
+
+[[bin]]
+name = "bench-all"
+path = "src/bin/bench-all.rs"

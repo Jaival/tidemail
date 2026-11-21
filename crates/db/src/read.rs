@@ -183,6 +183,23 @@ pub fn get_thread(conn: &Connection, thread_id: i64) -> Result<Option<ThreadDeta
 }
 
 /// Body of one message, or `None` when it is not stored yet.
+// CROSS JOIN fixes the join order: without ANALYZE stats SQLite would scan
+// thread_labels.
+pub const SQL_UNREAD_COUNTS: &str = "SELECT tl.account_id, tl.label_key, COUNT(*)      FROM threads t CROSS JOIN thread_labels tl ON tl.thread_id = t.id      WHERE t.unread_count > 0 GROUP BY tl.account_id, tl.label_key";
+
+/// Unread threads per account and label. Labels with none are absent.
+pub fn unread_counts(conn: &Connection) -> Result<Vec<UnreadCount>> {
+    let mut st = conn.prepare_cached(SQL_UNREAD_COUNTS)?;
+    let rows = st.query_map([], |r| {
+        Ok(UnreadCount {
+            account_id: r.get(0)?,
+            label_key: r.get(1)?,
+            count: r.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn get_body(conn: &Connection, message_id: i64) -> Result<Option<Body>> {
     conn.prepare_cached(
         "SELECT b.message_id, b.html_sanitized, b.text, b.sanitizer_version, \
@@ -232,6 +249,22 @@ mod tests {
         let conn = crate::open_in_memory().unwrap();
         assert_no_scan(&conn, SQL_LIST_UNIFIED);
         assert_no_scan(&conn, SQL_LIST_ACCOUNT);
+    }
+
+    /// Reads only unread threads (partial index), then their labels by index.
+    #[test]
+    fn unread_counts_use_partial_index() {
+        let conn = crate::open_in_memory().unwrap();
+        let p = plan(&conn, SQL_UNREAD_COUNTS);
+        assert!(
+            p.contains("USING INDEX threads_unread")
+                || p.contains("USING COVERING INDEX threads_unread"),
+            "{p}"
+        );
+        assert!(
+            p.contains("SEARCH tl USING INDEX thread_labels_thread"),
+            "{p}"
+        );
     }
 
     #[test]
