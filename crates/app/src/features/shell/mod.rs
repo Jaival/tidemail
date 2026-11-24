@@ -8,15 +8,20 @@ mod tabs;
 
 use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::{prelude::FluentBuilder, *};
-use tidemail_db::types::{ActionKind, ThreadPage};
+use tidemail_db::types::{ActionKind, OutgoingMail, ThreadPage};
 
 use crate::{
     actions::*,
     features::{
         accounts::AccountsPanel,
         appearance::Appearance,
+        compose::{Compose, ComposeEvent},
         list::ThreadList,
-        palette::{self, toast::Toast, Picker},
+        palette::{
+            self,
+            toast::{Toast, Undo},
+            Picker,
+        },
         reader::Reader,
         search::{Results, Search, SearchEvent},
         status,
@@ -41,6 +46,8 @@ pub struct Shell {
     accounts: Option<Entity<AccountsPanel>>,
     toast: Option<Toast>,
     toast_timer: Option<Task<()>>,
+    /// New message form, in the reader's place while open.
+    compose: Option<(Entity<Compose>, Subscription)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -59,16 +66,26 @@ impl Shell {
             | StateEvent::AccountsChanged
             | StateEvent::StatusChanged
             | StateEvent::ReadingChanged
+            | StateEvent::ComposeChanged
             | StateEvent::SettingsChanged => cx.notify(),
             StateEvent::OverlaysChanged => this.sync_picker(window, cx),
             StateEvent::ActionDone { text, action_ids } => this.show_toast(
                 Toast {
                     text: text.clone(),
-                    undo: Some(action_ids.clone()),
+                    undo: Some(Undo::Actions(action_ids.clone())),
                     error: false,
                 },
                 cx,
             ),
+            StateEvent::SendQueued { outbox_id } => this.show_toast(
+                Toast {
+                    text: "Sending…".into(),
+                    undo: Some(Undo::Send(*outbox_id)),
+                    error: false,
+                },
+                cx,
+            ),
+            StateEvent::ReopenCompose(mail) => this.open_compose(mail.clone(), window, cx),
             StateEvent::ActionFailed { text } => this.show_toast(
                 Toast {
                     text: text.clone(),
@@ -114,6 +131,7 @@ impl Shell {
             accounts: None,
             toast: None,
             toast_timer: None,
+            compose: None,
             _subscriptions: vec![sub, leave, observe],
         }
     }
@@ -151,12 +169,9 @@ impl Shell {
         cx.notify();
     }
 
-    /// Show a toast for 5 s (replaces the current one).
+    /// Show a toast for its lifetime (replaces the current one).
     fn show_toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
-        let lifetime = match toast.undo {
-            Some(_) => palette::toast::LIFETIME,
-            None => palette::toast::NOTICE_LIFETIME,
-        };
+        let lifetime = toast.lifetime();
         self.toast = Some(toast);
         self.toast_timer = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
@@ -173,12 +188,62 @@ impl Shell {
     /// Undo the action of the current toast (Ctrl+Z or the button).
     fn undo(&mut self, cx: &mut Context<Self>) {
         if let Some(Toast {
-            undo: Some(ids), ..
+            undo: Some(undo), ..
         }) = self.toast.take()
         {
             self.toast_timer = None;
-            self.state.update(cx, |s, cx| s.undo(ids, cx));
+            self.state.update(cx, |s, cx| match undo {
+                Undo::Actions(ids) => s.undo(ids, cx),
+                Undo::Send(id) => s.take_back_send(id, cx),
+            });
             cx.notify();
+        }
+    }
+
+    /// The open compose form.
+    pub fn compose(&self) -> Option<&Entity<Compose>> {
+        self.compose.as_ref().map(|(c, _)| c)
+    }
+
+    /// Open compose with `mail` (empty for `c`); focus it if it is open.
+    pub fn open_compose(&mut self, mail: OutgoingMail, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((compose, _)) = &self.compose {
+            compose.update(cx, |c, cx| c.focus(window, cx));
+            return;
+        }
+        let account = match mail.account_id {
+            0 => self.state.read(cx).compose_account(),
+            id => Some(id),
+        };
+        let Some(account_id) = account else {
+            self.show_toast(
+                Toast {
+                    text: "Add a Gmail account first (Ctrl+K, Add account…)".into(),
+                    undo: None,
+                    error: false,
+                },
+                cx,
+            );
+            return;
+        };
+        let mail = OutgoingMail { account_id, ..mail };
+        let state = self.state.clone();
+        let compose = cx.new(|cx| Compose::new(state, mail, window, cx));
+        let sub = cx.subscribe_in(&compose, window, |this, _, event, window, cx| {
+            if let ComposeEvent::Send(mail) = event {
+                let mail = mail.clone();
+                this.state.update(cx, |s, cx| s.send(mail, cx));
+            }
+            this.close_compose(window, cx);
+        });
+        self.compose = Some((compose, sub));
+        self.state.update(cx, |s, cx| s.set_composing(true, cx));
+    }
+
+    pub fn close_compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.compose.take().is_some() {
+            self.state.update(cx, |s, cx| s.set_composing(false, cx));
+            self.focus.focus(window, cx);
         }
     }
 
@@ -243,7 +308,11 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let composing = self
+            .compose
+            .as_ref()
+            .is_some_and(|(c, _)| c.read(cx).focused(window, cx));
         let theme = cx.theme();
         let spec = self.state.read(cx).spec();
         let mut context = KeyContext::default();
@@ -251,7 +320,7 @@ impl Render for Shell {
         // bindings must not match: the shell context is replaced.
         context.add(if self.picker.is_some() || self.appearance.is_some() || self.accounts.is_some() {
             PICKER_CONTEXT
-        } else if self.search.read(cx).focused {
+        } else if self.search.read(cx).focused || composing {
             SEARCH_CONTEXT
         } else {
             CONTEXT
@@ -343,7 +412,10 @@ impl Render for Shell {
             .on_action(
                 cx.listener(|this, _: &GoLabel, _, cx| this.push_overlay(Overlay::GoPicker, cx)),
             )
-            .on_action(cx.listener(|this, _: &Undo, _, cx| this.undo(cx)))
+            .on_action(cx.listener(|this, _: &crate::actions::Undo, _, cx| this.undo(cx)))
+            .on_action(cx.listener(|this, _: &ComposeNew, window, cx| {
+                this.open_compose(OutgoingMail::default(), window, cx)
+            }))
             .on_action(cx.listener(|this, _: &GoInbox, _, cx| {
                 this.state.update(cx, |s, cx| s.navigate(Nav::inbox(), cx))
             }))
@@ -454,10 +526,12 @@ impl Shell {
         let row = div().flex_1().min_h_0().flex();
         if spec.reader == ReaderPlacement::Replace {
             // Command: one pane; the reader replaces the list while reading.
-            return row.child(div().size_full().map(|d| match (s.reading, searching) {
-                (true, _) => d.child(self.reader.clone()),
-                (false, true) => d.child(self.search.read(cx).results.clone()),
-                (false, false) => d.child(self.list.clone()),
+            let compose = self.compose.as_ref().map(|(c, _)| c.clone());
+            return row.child(div().size_full().map(|d| match (compose, s.reading, searching) {
+                (Some(compose), ..) => d.child(compose),
+                (None, true, _) => d.child(self.reader.clone()),
+                (None, false, true) => d.child(self.search.read(cx).results.clone()),
+                (None, false, false) => d.child(self.list.clone()),
             }));
         }
         let paper = spec.nav == NavStyle::Rail;
@@ -501,7 +575,7 @@ impl Shell {
                             .py_2()
                             .border_t_1()
                             .border_color(c.border)
-                            .child(crate::features::status::line(s, cx)),
+                            .child(crate::features::status::line(&self.state, cx)),
                     )
                 }),
         )
@@ -511,7 +585,10 @@ impl Shell {
                 .min_w_0()
                 .h_full()
                 .bg(c.bg)
-                .child(self.reader.clone()),
+                .map(|d| match &self.compose {
+                    Some((compose, _)) => d.child(compose.clone()),
+                    None => d.child(self.reader.clone()),
+                }),
         )
     }
 
@@ -519,7 +596,13 @@ impl Shell {
     fn hint_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         let s = self.state.read(cx);
         let c = colors(cx);
-        let hints: &[(&[&str], &str)] = if s.reading {
+        let hints: &[(&[&str], &str)] = if self.compose.is_some() {
+            &[
+                (&["Ctrl", "Enter"], "Send"),
+                (&["Tab"], "Next field"),
+                (&["Esc"], "Discard"),
+            ]
+        } else if s.reading {
             &[
                 (&["Esc"], "Back"),
                 (&["j", "k"], "Next / previous"),
@@ -559,6 +642,6 @@ impl Shell {
                 ),
             })
             .child(div().flex_1())
-            .child(crate::features::status::line(s, cx))
+            .child(crate::features::status::line(&self.state, cx))
     }
 }

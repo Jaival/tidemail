@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005_sync_state_total.sql"),
     include_str!("../migrations/0006_unescape_snippets.sql"),
     include_str!("../migrations/0007_sync_window.sql"),
+    include_str!("../migrations/0008_outbox.sql"),
 ];
 
 /// Schema version this build expects.

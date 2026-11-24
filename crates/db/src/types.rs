@@ -128,6 +128,52 @@ pub struct MessageMeta {
     pub has_attachment: bool,
     pub body_state: BodyState,
     pub attachments: Vec<Attachment>,
+    /// Set while the message waits in the send queue (`outbox`).
+    #[serde(default)]
+    pub send_state: Option<SendState>,
+}
+
+/// A message of ours that Gmail has not confirmed yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SendState {
+    /// In the undo window or being sent.
+    Sending,
+    /// The last attempt found no connection (or no sign-in); retried later.
+    Queued,
+    /// Gave up; Retry in the status area.
+    Failed,
+}
+
+/// What compose hands to the send queue. Addresses are as typed
+/// (`a@b.c, "Name" <d@e.f>`), checked by `tidemail_gmail::compose`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutgoingMail {
+    pub account_id: i64,
+    pub to: String,
+    pub cc: String,
+    pub bcc: String,
+    pub subject: String,
+    /// Plain text (slice 1).
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendTicket {
+    /// `outbox` row; undo / retry use it.
+    pub outbox_id: i64,
+    /// Local thread of the sent copy.
+    pub thread_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedSend {
+    pub id: i64,
+    pub subject: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,4 +293,12 @@ pub struct SyncStatus {
     pub accounts: Vec<AccountSync>,
     pub pending_actions: u32,
     pub failed_actions: Vec<FailedAction>,
+    /// Messages in the send queue (not failed), including the undo window.
+    #[serde(default)]
+    pub pending_sends: u32,
+    /// Of `pending_sends`: waiting for a connection or sign-in.
+    #[serde(default)]
+    pub queued_offline: u32,
+    #[serde(default)]
+    pub failed_sends: Vec<FailedSend>,
 }

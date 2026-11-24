@@ -271,6 +271,18 @@ impl GmailClient {
         .await
     }
 
+    /// `messages.send` with a raw RFC 822 message. Not retried after a
+    /// server error (it may have been sent); 401 and rate limits are retried
+    /// because Gmail rejected those requests.
+    pub async fn send_message(&self, raw: &[u8], thread_id: Option<&str>) -> Result<Message, Error> {
+        use base64::{engine::general_purpose::URL_SAFE, Engine};
+        let mut body = serde_json::json!({ "raw": URL_SAFE.encode(raw) });
+        if let Some(t) = thread_id {
+            body["threadId"] = t.into();
+        }
+        self.post(cost::MESSAGES_SEND, "messages/send", &body).await
+    }
+
     pub async fn untrash_thread(&self, thread_id: &str) -> Result<Thread, Error> {
         self.post(
             cost::THREADS_UNTRASH,

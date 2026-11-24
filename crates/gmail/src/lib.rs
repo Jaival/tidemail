@@ -5,6 +5,7 @@
 mod auth;
 mod batch;
 mod client;
+pub mod compose;
 mod mime;
 mod quota;
 mod tokens;

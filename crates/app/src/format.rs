@@ -70,6 +70,7 @@ pub fn user_error(e: &tidemail_sync::Error) -> String {
         E::Gmail(G::Keyring(_)) => "Windows Credential Manager refused the sign-in token".into(),
         E::Io(io) => format!("Cannot save the file: {}", io.kind()),
         E::NotFound(_) => "Not found. It may have been deleted".into(),
+        E::Invalid(text) => text.clone(),
         _ => "Something went wrong (details in the log)".into(),
     }
 }

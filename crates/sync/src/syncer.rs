@@ -493,7 +493,8 @@ impl AccountLoop {
         let (local, in_window): (HashSet<String>, HashSet<String>) = {
             let conn = lock(&self.db);
             let mut st = conn.prepare_cached(
-                "SELECT gmail_id, internal_date FROM messages WHERE account_id = ?1",
+                // Local sent copies (`outbox`) are not in Gmail yet.
+                "SELECT gmail_id, internal_date FROM messages WHERE account_id = ?1                  AND gmail_id NOT LIKE 'local-%'",
             )?;
             let rows = st.query_map([self.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
             let (mut all, mut window) = (HashSet::new(), HashSet::new());

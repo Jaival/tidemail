@@ -306,6 +306,18 @@ impl GmailApi for Api {
             .map(drop)
             .map_err(map_err)
     }
+
+    async fn messages_send(&self, raw: &[u8], thread_id: Option<&str>) -> ApiResult<MessageRef> {
+        let m = self
+            .0
+            .send_message(raw, thread_id)
+            .await
+            .map_err(map_err)?;
+        Ok(MessageRef {
+            id: m.id,
+            thread_id: m.thread_id,
+        })
+    }
 }
 
 /// Real provider. `config.toml` is read on first use, not at launch; a

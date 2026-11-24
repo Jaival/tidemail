@@ -296,6 +296,7 @@ fn shortcut_action(keys: &str) -> Option<Box<dyn Action>> {
         "Ctrl+K" => Box::new(CommandPalette),
         "g i" => Box::new(GoInbox),
         "g l" => Box::new(GoLabel),
+        "c" => Box::new(ComposeNew),
         "Esc" => Box::new(CloseReader),
         "Ctrl+Z" => Box::new(Undo),
         _ => return None,

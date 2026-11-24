@@ -15,6 +15,8 @@ use tidemail_bench::{arg, db_arg};
 
 const COLD_LAUNCH_MS: f64 = 400.0;
 const OPEN_TO_PAINT_MS: f64 = 50.0;
+/// Open compose to caret paint (ADR 0004).
+const COMPOSE_MS: f64 = 50.0;
 const SCROLL_DROPPED_PCT: f64 = 2.0;
 const LAUNCHES: usize = 3;
 const PRESETS: [&str; 3] = ["tide", "command", "paper"];
@@ -28,6 +30,8 @@ struct Report {
     scroll_dropped: usize,
     scroll_blank: usize,
     scroll_max_frame_ms: f64,
+    #[serde(default)]
+    compose_ms: Vec<f64>,
 }
 
 fn sibling(name: &str) -> PathBuf {
@@ -101,6 +105,7 @@ fn summarize(preset: &str, db: &Path, reports: &[Report]) -> bool {
         .map(|r| r.scroll_max_frame_ms)
         .fold(0.0, f64::max);
     let dropped_pct = 100.0 * dropped as f64 / frames.max(1) as f64;
+    let compose = p95(reports.iter().flat_map(|r| r.compose_ms.clone()).collect());
 
     let mut line = |name: &str, ok: bool, value: String, budget: String| {
         ok_all &= ok;
@@ -138,6 +143,12 @@ app bench, {preset} ({LAUNCHES} launches, {})",
         dropped_pct <= SCROLL_DROPPED_PCT,
         format!("{dropped} / {frames} (max {max_frame:.1} ms)"),
         format!("<= {SCROLL_DROPPED_PCT} %"),
+    );
+    line(
+        "open compose to caret paint p95",
+        compose <= COMPOSE_MS,
+        format!("{compose:.1} ms"),
+        format!("{COMPOSE_MS} ms"),
     );
     line(
         "scroll blank frames",
