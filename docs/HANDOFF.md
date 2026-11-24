@@ -355,12 +355,13 @@ Not done yet:
 
 - Grilling done. All decisions: `docs/adr/0004-compose-and-drafts.md`. SPEC points to it.
 - Spell check is in Phase 3 (slice 6), not deferred: Windows `ISpellChecker`, squiggles via `gpui-component` `Editor` diagnostics.
-- Next: slice 0 (editor spike, pass/fail in ADR 0004) in a new thread on branch `phase3`, then slice 1 (new message, plain text, send queue, 10 s undo send).
+- Slice 0 (editor spike): **pass** (2026-11-24). Results in ADR 0004 "Slice 0 result". Keystroke to paint p95 ~1.3 ms at 5,000 words. Squiggles come from our own `InputHighlighter`, not editor diagnostics (invisible colour, cleared on edit). IME composition not checked (no IME installed).
+- Next: slice 1 (new message, plain text, send queue, 10 s undo send).
 - Branch `mark-all-read` (Shift+U mark all read, IMMEDIATE transactions) is committed, not pushed or merged.
 
 ## Next
 
-1. Phase 3 slice 0, the editor spike (see "Phase 3 design" above). Phase 2 leftovers ("Not done yet") stay open.
+1. Phase 3 slice 1 (see "Phase 3 design" above). Phase 2 leftovers ("Not done yet") stay open.
 2. Open from 1G-U3b:
    - `plainTextMono` defaults to on (the plan listed the interface font for plain-text mail). On, because plain-text mail is where keys and logs arrive and masking only works in the code font. Flip the default if plain-text letters read worse in mono.
    - Raw headers (the plan's other code-font use) do not exist yet; use the code font when they do.

@@ -89,8 +89,10 @@ mode with diagnostics squiggles, code actions, completion provider,
   inline code / code blocks, ALL-CAPS words and words with digits.
 - Runs on a background thread 300 ms after typing stops, only on changed
   paragraphs; the word under the caret stays unmarked.
-- Squiggles are `Editor` diagnostics. Code actions (right-click, Ctrl+.): up to
-  5 suggestions, "Add to dictionary", "Ignore in this draft". No autocorrect.
+- Squiggles are wavy underlines from Tidemail's own `InputHighlighter` (slice 0
+  result), not `Editor` diagnostics. Menu (right-click via
+  `Editor::context_menu`, Ctrl+.): up to 5 suggestions, "Add to dictionary",
+  "Ignore in this draft". No autocorrect.
 
 ### Autocomplete
 
@@ -121,10 +123,36 @@ mode with diagnostics squiggles, code actions, completion provider,
 
 ## Consequences
 
-- `Editor` mode is a code editor. From its source (0.9): soft wrap breaks at
-  word boundaries; `set_auto_close(false)`, `set_smart_indent(false)`,
-  `line_number(false)`, `folding(false)` exist; diagnostics exist only in
-  code-editor mode. Unknown until slice 0: proportional font, speed at 5,000
-  words, IME, squiggles on wrapped lines.
+- `Editor` mode is a code editor; slice 0 showed it works for prose (below).
+
+## Slice 0 result (2026-11-24): pass
+
+Spike: `crates/app/examples/editor_spike.rs` (`--bench` prints timings),
+screenshots: `scripts/ui-shots/spike.ps1`.
+
+- **Setup that works:** `EditorState::new(..).soft_wrap(true).line_number(false)
+  .folding(false).indent_guides(false).auto_close(false).smart_indent(false)`,
+  `Editor::new(..).font_family("Inter")`, plus our own highlighter through
+  `set_highlighter_factory`.
+- **Speed:** 5,000 words, caret mid-text in a wrapped paragraph, 300 keys
+  (letters, space, backspace), squiggles on: keystroke to paint p50 ~1.0 ms,
+  p95 1.2-1.4 ms, max ~5 ms (3 runs, release). Budget 16 ms.
+- **Inter** draws well; soft wrap breaks between words.
+- **Squiggles: not diagnostics.** Without the `tree-sitter` / `syntect`
+  features `gpui-component` installs no highlighter, and diagnostics only draw
+  when one exists. With one installed, diagnostics draw in the theme's
+  `highlight_theme` status colour, which our theme leaves unset (invisible),
+  and every edit clears them (LSP republish model). A custom `InputHighlighter`
+  returning wavy `UnderlineStyle` runs draws them correctly, also on wrapped
+  lines and after edits above them. The same highlighter will dim Markdown
+  markers (slice 5), so no tree-sitter dependency.
+- **Input:** emoji (incl. skin tone), combining accent, CJK through
+  `SendInput` Unicode (the path the emoji panel commits through) all render.
+  Ctrl+Left / Ctrl+Shift+Left select Latin words; CJK moves per character.
+  `( " [ {` get no closer.
+- **Enter keeps the previous line's indent** even with smart indent off.
+  Accepted: it continues Markdown list items.
+- **Not checked:** IME composition (no IME on this PC; en-IN only). Check by
+  hand with a Japanese or Chinese IME before release.
 - New dependency: `windows` (COM) next to `windows-sys`; `pulldown-cmark`.
 - Later: send-as aliases, Gmail signature import, spell-check auto-detect.
