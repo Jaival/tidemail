@@ -11,14 +11,34 @@ use crate::{theme::colors, ui};
 
 /// How long a toast stays (also the undo window of the engine).
 pub const LIFETIME: Duration = Duration::from_secs(5);
+/// "Undo send" stays for the send queue's undo window (ADR 0004).
+pub const SEND_LIFETIME: Duration = Duration::from_secs(10);
 /// Notices and errors have no undo window; they stay long enough to read.
 pub const NOTICE_LIFETIME: Duration = Duration::from_secs(12);
 
 pub struct Toast {
     pub text: SharedString,
-    /// Queue rows that `AppState::undo` reverts; `None` for errors and notices.
-    pub undo: Option<Vec<i64>>,
+    /// What "Undo" reverts; `None` for errors and notices.
+    pub undo: Option<Undo>,
     pub error: bool,
+}
+
+#[derive(Clone)]
+pub enum Undo {
+    /// Action queue rows (`AppState::undo`).
+    Actions(Vec<i64>),
+    /// An outbox row (`AppState::take_back_send`).
+    Send(i64),
+}
+
+impl Toast {
+    pub fn lifetime(&self) -> Duration {
+        match self.undo {
+            Some(Undo::Actions(_)) => LIFETIME,
+            Some(Undo::Send(_)) => SEND_LIFETIME,
+            None => NOTICE_LIFETIME,
+        }
+    }
 }
 
 /// Text, then an "Undo" button with its key. `on_undo` runs on click.

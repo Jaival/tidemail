@@ -13,7 +13,7 @@ use futures::StreamExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::{prelude::FluentBuilder, *};
 use tidemail_db::{
-    read, types::Body, types::MessageMeta, types::ThreadDetail, write,
+    read, types::Body, types::MessageMeta, types::SendState, types::ThreadDetail, write,
 };
 
 use crate::{
@@ -75,7 +75,9 @@ impl Reader {
             {
                 this.load(cx)
             }
-            StateEvent::ReadingChanged | StateEvent::OverlaysChanged => {
+            StateEvent::ReadingChanged
+            | StateEvent::OverlaysChanged
+            | StateEvent::ComposeChanged => {
                 this.sync_visibility(cx);
                 cx.notify();
             }
@@ -341,6 +343,7 @@ impl Reader {
         let on = self.html_mode
             && state.selected.is_some()
             && !state.overlay_open()
+            && !state.composing
             && (state.spec().reader == ReaderPlacement::Split || state.reading);
         host.view.update(cx, |v, _| {
             if v.visible() != on {
@@ -596,6 +599,14 @@ impl Reader {
                                     .child(format!("to {}", m.to_text)),
                             ),
                     )
+                    .when_some(m.send_state, |d, state| {
+                        let (text, color) = match state {
+                            SendState::Sending => ("Sending…", c.muted_fg),
+                            SendState::Queued => ("Queued (offline)", c.warning),
+                            SendState::Failed => ("Not sent", c.danger),
+                        };
+                        d.child(ui::chip(text, color))
+                    })
                     .child(
                         div()
                             .flex_none()

@@ -1,4 +1,6 @@
 //! System tray icon: left-click shows the window; menu has Show and Quit.
+//! Quit names the messages still in the send queue (they go out on the
+//! next launch).
 
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
@@ -9,8 +11,18 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON}
 
 use crate::events::{AppEvent, EventTx};
 
+/// Quit menu text for `waiting` messages in the send queue.
+pub fn quit_text(waiting: u32) -> String {
+    match waiting {
+        0 => "Quit".into(),
+        1 => "Quit (1 message waiting to send)".into(),
+        n => format!("Quit ({n} messages waiting to send)"),
+    }
+}
+
 /// Keep the returned icon alive; dropping it removes it from the tray.
-pub fn install(tx: EventTx) -> Result<TrayIcon, Box<dyn std::error::Error>> {
+/// The menu item is Quit (`quit_text`).
+pub fn install(tx: EventTx) -> Result<(TrayIcon, MenuItem), Box<dyn std::error::Error>> {
     let show = MenuItem::new("Show Tidemail", true, None);
     let quit = MenuItem::new("Quit", true, None);
     let menu = Menu::new();
@@ -45,5 +57,5 @@ pub fn install(tx: EventTx) -> Result<TrayIcon, Box<dyn std::error::Error>> {
             tx.send(AppEvent::ShowWindow);
         }
     }));
-    Ok(tray)
+    Ok((tray, quit))
 }

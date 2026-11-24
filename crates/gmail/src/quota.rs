@@ -18,6 +18,7 @@ pub mod cost {
     pub const THREADS_MODIFY: u32 = 10;
     pub const THREADS_TRASH: u32 = 10;
     pub const THREADS_UNTRASH: u32 = 10;
+    pub const MESSAGES_SEND: u32 = 100;
 }
 
 const UNITS_PER_SECOND: f64 = 250.0;

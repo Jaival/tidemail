@@ -13,6 +13,7 @@ mod actions;
 pub mod api;
 #[cfg(test)]
 mod fake;
+mod outbox;
 mod store;
 mod syncer;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use std::time::Duration;
 use tidemail_db::rusqlite::{params, Connection, OptionalExtension};
 use tidemail_db::types::{
     Account, AccountSync, AccountSyncState, ActionRequest, ActionTicket, Backfill, FailedAction,
-    SyncStatus,
+    OutgoingMail, SendTicket, SyncStatus,
 };
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::{mpsc, Notify};
@@ -43,6 +44,9 @@ pub enum Error {
     Api(#[from] ApiError),
     #[error("not found: {0}")]
     NotFound(String),
+    /// Bad input from the user (an address that is not one); shown as is.
+    #[error("{0}")]
+    Invalid(String),
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("{0}")]
@@ -65,6 +69,8 @@ pub struct Config {
     pub poll_interval: Duration,
     /// Delay before an action's first send (the undo window).
     pub undo_delay: Duration,
+    /// Delay before a queued message is sent ("Undo send", ADR 0004: 10 s).
+    pub send_delay: Duration,
     pub max_attempts: u32,
     /// Pause after each `messages.get` batch (quota: 250 units/s, a 50-batch
     /// of metadata gets costs 250).
@@ -87,6 +93,7 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(7),
             undo_delay: Duration::from_secs(5),
+            send_delay: Duration::from_secs(10),
             max_attempts: 8,
             batch_gap: Duration::from_secs(1),
             body_policy_threshold: 0,
@@ -125,6 +132,7 @@ pub(crate) struct Inner {
     pub fg: Mutex<Connection>,
     pub states: Mutex<HashMap<i64, AccountSyncState>>,
     pub sender_wake: Notify,
+    pub outbox_wake: Notify,
     pub account_wake: Mutex<HashMap<i64, Arc<Notify>>>,
     /// Threads whose Gmail state must be re-fetched (failed / dismissed actions).
     pub restore: Mutex<HashMap<i64, HashSet<i64>>>,
@@ -195,6 +203,7 @@ impl Engine {
             fg: Mutex::new(fg),
             states: Mutex::default(),
             sender_wake: Notify::new(),
+            outbox_wake: Notify::new(),
             account_wake: Mutex::default(),
             restore: Mutex::default(),
             recent: Mutex::default(),
@@ -220,6 +229,7 @@ impl Engine {
                     i.spawn_account(id);
                 }
                 tokio::spawn(actions::sender_loop(i.clone()));
+                tokio::spawn(outbox::outbox_loop(i.clone()));
                 tokio::spawn(syncer::prefetch_loop(i, prefetch_rx));
             });
         }
@@ -241,6 +251,22 @@ impl Engine {
 
     pub fn retry_failed(&self, action_id: i64) -> Result<()> {
         self.inner.retry_failed(action_id)
+    }
+
+    /// Store the sent copy (with `SENT`) and queue the message; it goes to
+    /// Gmail after `Config::send_delay`, or on a later launch.
+    pub fn queue_send(&self, mail: OutgoingMail) -> Result<SendTicket> {
+        self.inner.queue_send(mail)
+    }
+
+    /// Undo send / edit a failed send: removes it from the queue and
+    /// returns its fields. `None` when it is already on its way.
+    pub fn cancel_send(&self, outbox_id: i64) -> Result<Option<OutgoingMail>> {
+        self.inner.cancel_send(outbox_id)
+    }
+
+    pub fn retry_send(&self, outbox_id: i64) -> Result<()> {
+        self.inner.retry_send(outbox_id)
     }
 
     pub fn dismiss_failed(&self, action_id: i64) -> Result<()> {
@@ -443,10 +469,14 @@ impl Inner {
                     })
                 })
                 .collect();
+            let (pending_sends, queued_offline, failed_sends) = outbox::status(&conn)?;
             Ok(SyncStatus {
                 accounts,
                 pending_actions: pending,
                 failed_actions,
+                pending_sends,
+                queued_offline,
+                failed_sends,
             })
         };
         q().unwrap_or_default()

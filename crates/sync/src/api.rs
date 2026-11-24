@@ -155,6 +155,8 @@ pub trait GmailApi: Send + Sync {
     ) -> ApiResult<()>;
     async fn threads_trash(&self, thread_id: &str) -> ApiResult<()>;
     async fn threads_untrash(&self, thread_id: &str) -> ApiResult<()>;
+    /// `messages.send`; returns Gmail's ids of the sent message.
+    async fn messages_send(&self, raw: &[u8], thread_id: Option<&str>) -> ApiResult<MessageRef>;
 }
 
 #[derive(Debug, Clone)]

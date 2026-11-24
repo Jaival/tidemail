@@ -41,6 +41,9 @@ pub struct FakeState {
     pub other_calls: Vec<String>,
     pub max_batch: usize,
     pub attachment_fetches: usize,
+    /// Raw messages accepted by `messages_send`.
+    pub sent: Vec<Vec<u8>>,
+    pub fail_send: Option<ApiError>,
 }
 
 pub struct FakeGmail(pub Mutex<FakeState>);
@@ -64,6 +67,8 @@ impl FakeGmail {
             other_calls: vec![],
             max_batch: 0,
             attachment_fetches: 0,
+            sent: vec![],
+            fail_send: None,
         })))
     }
 
@@ -313,6 +318,34 @@ impl GmailApi for FakeGmail {
         self.st().other_calls.push(format!("untrash {thread_id}"));
         self.modify_thread(thread_id, &[], &["TRASH"]);
         Ok(())
+    }
+
+    async fn messages_send(&self, raw: &[u8], thread_id: Option<&str>) -> ApiResult<MessageRef> {
+        let n = {
+            let mut s = self.st();
+            Self::check_online(&s)?;
+            if let Some(e) = s.fail_send.clone() {
+                return Err(e);
+            }
+            s.sent.push(raw.to_vec());
+            s.sent.len()
+        };
+        let r = MessageRef {
+            id: format!("sent{n}"),
+            thread_id: thread_id.map_or_else(|| format!("st{n}"), str::to_owned),
+        };
+        self.add(FakeMsg {
+            id: r.id.clone(),
+            thread_id: r.thread_id.clone(),
+            labels: label_set(&["SENT"]),
+            date: tidemail_db::now_ms(),
+            from: "me@example.com".into(),
+            subject: "sent".into(),
+            html: None,
+            text: Some("sent".into()),
+            attachments: vec![],
+        });
+        Ok(r)
     }
 }
 

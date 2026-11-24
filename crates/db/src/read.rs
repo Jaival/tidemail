@@ -121,9 +121,10 @@ pub fn get_thread(conn: &Connection, thread_id: i64) -> Result<Option<ThreadDeta
 
     let mut messages: Vec<MessageMeta> = conn
         .prepare_cached(
-            "SELECT id, from_name, from_email, to_text, subject, snippet, internal_date, \
-             is_unread, is_starred, has_attachment, body_state \
-             FROM messages WHERE thread_id = ?1 ORDER BY internal_date, id",
+            "SELECT m.id, m.from_name, m.from_email, m.to_text, m.subject, m.snippet, \
+             m.internal_date, m.is_unread, m.is_starred, m.has_attachment, m.body_state, \
+             o.failed, o.offline FROM messages m LEFT JOIN outbox o ON o.message_id = m.id \
+             WHERE m.thread_id = ?1 ORDER BY m.internal_date, m.id",
         )?
         .query_map([thread_id], |r| {
             Ok(MessageMeta {
@@ -139,6 +140,12 @@ pub fn get_thread(conn: &Connection, thread_id: i64) -> Result<Option<ThreadDeta
                 has_attachment: r.get(9)?,
                 body_state: BodyState::from_db(r.get(10)?),
                 attachments: Vec::new(),
+                send_state: match (r.get::<_, Option<bool>>(11)?, r.get::<_, Option<bool>>(12)?) {
+                    (None, _) => None,
+                    (Some(true), _) => Some(SendState::Failed),
+                    (Some(false), Some(true)) => Some(SendState::Queued),
+                    (Some(false), _) => Some(SendState::Sending),
+                },
             })
         })?
         .collect::<Result<_>>()?;

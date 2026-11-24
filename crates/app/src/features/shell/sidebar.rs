@@ -91,6 +91,6 @@ pub fn render(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
             div()
                 .px_4()
                 .py_3()
-                .child(crate::features::status::line(s, cx)),
+                .child(crate::features::status::line(state, cx)),
         )
 }

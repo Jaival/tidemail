@@ -9,7 +9,10 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use gpui_kit::{App, AppContext, Context, EventEmitter, SharedString, Task, Window};
 use tidemail_db::{
     read,
-    types::{Account, ActionKind, ActionRequest, Label, SyncStatus, ThreadRow, UnreadCount, View},
+    types::{
+        Account, ActionKind, ActionRequest, Label, OutgoingMail, SyncStatus, ThreadRow,
+        UnreadCount, View,
+    },
 };
 use tidemail_sync::Engine;
 
@@ -88,6 +91,14 @@ pub enum StateEvent {
     Notice {
         text: SharedString,
     },
+    /// Compose opened or closed (`AppState::composing`).
+    ComposeChanged,
+    /// A message went into the send queue; `outbox_id` undoes it.
+    SendQueued {
+        outbox_id: i64,
+    },
+    /// Open compose with this message (undo send, edit a failed send).
+    ReopenCompose(OutgoingMail),
 }
 
 pub struct AppState {
@@ -104,6 +115,8 @@ pub struct AppState {
     pub reading: bool,
     /// A search query is active: its results replace the thread list.
     pub searching: bool,
+    /// Compose is open in the reader's place.
+    pub composing: bool,
     pub status: SyncStatus,
     pub settings: Settings,
     settings_path: PathBuf,
@@ -138,6 +151,7 @@ impl AppState {
             selected: None,
             reading: false,
             searching: false,
+            composing: false,
             status,
             settings,
             settings_path,
@@ -254,6 +268,68 @@ impl AppState {
                     })
                 });
             }
+        })
+        .detach();
+    }
+
+    pub fn set_composing(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.composing != on {
+            self.composing = on;
+            cx.emit(StateEvent::ComposeChanged);
+        }
+    }
+
+    /// Account a new message is sent from: the one of the current view, else
+    /// the first.
+    pub fn compose_account(&self) -> Option<i64> {
+        self.nav
+            .view
+            .account_id
+            .filter(|id| self.account(*id).is_some())
+            .or_else(|| self.accounts.first().map(|a| a.id))
+    }
+
+    /// Queue a message (sent after the 10 s undo window). On failure the
+    /// message comes back in compose.
+    pub fn send(&mut self, mail: OutgoingMail, cx: &mut Context<Self>) {
+        let engine = self.engine.clone();
+        let task = cx.background_spawn({
+            let mail = mail.clone();
+            async move { engine.queue_send(mail) }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |_, cx| match result {
+                Ok(ticket) => cx.emit(StateEvent::SendQueued {
+                    outbox_id: ticket.outbox_id,
+                }),
+                Err(e) => {
+                    cx.emit(StateEvent::ActionFailed {
+                        text: format!("Not sent. {}", format::user_error(&e)).into(),
+                    });
+                    cx.emit(StateEvent::ReopenCompose(mail));
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Take a queued message back (Undo send, or Edit after a failure) and
+    /// open it in compose.
+    pub fn take_back_send(&mut self, outbox_id: i64, cx: &mut Context<Self>) {
+        let engine = self.engine.clone();
+        let task = cx.background_spawn(async move { engine.cancel_send(outbox_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |_, cx| match result {
+                Ok(Some(mail)) => cx.emit(StateEvent::ReopenCompose(mail)),
+                Ok(None) => cx.emit(StateEvent::Notice {
+                    text: "Too late to undo: the message is on its way".into(),
+                }),
+                Err(e) => cx.emit(StateEvent::ActionFailed {
+                    text: format!("Undo failed. {}", format::user_error(&e)).into(),
+                }),
+            });
         })
         .detach();
     }

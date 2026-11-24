@@ -954,3 +954,125 @@ async fn full_diff_keeps_stored_mail_older_than_the_window() {
     until(|| count(&h.ro, "SELECT count(*) FROM messages WHERE gmail_id = 'm1'") == 0).await;
     assert_eq!(count(&h.ro, "SELECT count(*) FROM messages"), 9);
 }
+
+// ---- send queue (outbox) ----
+
+fn mail(to: &str) -> tidemail_db::types::OutgoingMail {
+    tidemail_db::types::OutgoingMail {
+        account_id: 1,
+        to: to.into(),
+        cc: String::new(),
+        bcc: String::new(),
+        subject: "Lunch".into(),
+        body: "Noon at the usual place?\n".into(),
+    }
+}
+
+fn send_state(c: &Connection, thread: i64) -> Option<tidemail_db::types::SendState> {
+    tidemail_db::read::get_thread(c, thread).unwrap().unwrap().messages[0].send_state
+}
+
+#[tokio::test(start_paused = true)]
+async fn send_waits_for_undo_window_then_gmail_ids_replace_local_ones() {
+    use tidemail_db::types::SendState;
+    let h = backfilled().await;
+    let ticket = h.engine.queue_send(mail("Ann <ann@example.com>")).unwrap();
+    let t = ticket.thread_id;
+    assert!(in_label(&h.ro, t, "SENT"));
+    assert_eq!(send_state(&h.ro, t), Some(SendState::Sending));
+    assert_eq!(
+        count(&h.ro, "SELECT count(*) FROM messages WHERE gmail_id LIKE 'local-%'"),
+        1
+    );
+    assert_eq!(h.engine.status().pending_sends, 1);
+    assert!(tidemail_db::read::get_body(&h.ro, tidemail_db::read::get_thread(&h.ro, t).unwrap().unwrap().messages[0].id)
+        .unwrap()
+        .is_some_and(|b| b.text.contains("usual place")));
+    secs(9).await;
+    assert!(h.gmail.st().sent.is_empty());
+    secs(2).await;
+    let raw = String::from_utf8(h.gmail.st().sent[0].clone()).unwrap();
+    assert!(raw.contains("To: \"Ann\" <ann@example.com>\r\n"));
+    assert!(raw.contains("Subject: Lunch\r\n"));
+    // Same local thread, now with Gmail's ids; no outbox row left.
+    assert_eq!(thread_id(&h.ro, "st1"), t);
+    assert_eq!(send_state(&h.ro, t), None);
+    assert_eq!(count(&h.ro, "SELECT count(*) FROM outbox"), 0);
+    assert_eq!(h.engine.status().pending_sends, 0);
+    // The next sync sees Gmail's copy and keeps one message.
+    secs(30).await;
+    assert_eq!(
+        count(&h.ro, "SELECT count(*) FROM messages WHERE gmail_id IN ('sent1') OR gmail_id LIKE 'local-%'"),
+        1
+    );
+    assert!(in_label(&h.ro, t, "SENT"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn undo_send_inside_window_sends_nothing_and_returns_the_mail() {
+    let h = backfilled().await;
+    let ticket = h.engine.queue_send(mail("ann@example.com")).unwrap();
+    secs(3).await;
+    let back = h.engine.cancel_send(ticket.outbox_id).unwrap();
+    assert_eq!(back, Some(mail("ann@example.com")));
+    assert_eq!(count(&h.ro, "SELECT count(*) FROM outbox"), 0);
+    assert_eq!(
+        count(&h.ro, &format!("SELECT count(*) FROM threads WHERE id = {}", ticket.thread_id)),
+        0
+    );
+    secs(30).await;
+    assert!(h.gmail.st().sent.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn offline_send_waits_then_goes_out() {
+    use tidemail_db::types::SendState;
+    let h = backfilled().await;
+    h.gmail.st().offline = true;
+    let ticket = h.engine.queue_send(mail("ann@example.com")).unwrap();
+    secs(12).await;
+    assert_eq!(send_state(&h.ro, ticket.thread_id), Some(SendState::Queued));
+    assert_eq!(h.engine.status().queued_offline, 1);
+    // Offline mail can still be taken back.
+    assert_eq!(count(&h.ro, "SELECT attempts FROM outbox"), 0);
+    h.gmail.st().offline = false;
+    until(|| h.gmail.st().sent.len() == 1).await;
+    until(|| count(&h.ro, "SELECT count(*) FROM outbox") == 0).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_send_shows_and_retries() {
+    use tidemail_db::types::SendState;
+    let h = backfilled().await;
+    h.gmail.st().fail_send = Some(ApiError::Other("400 invalid".into()));
+    let ticket = h.engine.queue_send(mail("ann@example.com")).unwrap();
+    until_long(|| !h.engine.status().failed_sends.is_empty()).await;
+    let failed = h.engine.status().failed_sends;
+    assert_eq!((failed[0].id, failed[0].subject.as_str()), (ticket.outbox_id, "Lunch"));
+    assert_eq!(send_state(&h.ro, ticket.thread_id), Some(SendState::Failed));
+    h.gmail.st().fail_send = None;
+    h.engine.retry_send(ticket.outbox_id).unwrap();
+    until(|| h.gmail.st().sent.len() == 1).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn bad_addresses_are_refused_before_queueing() {
+    let h = backfilled().await;
+    assert!(matches!(h.engine.queue_send(mail("bob")), Err(crate::Error::Invalid(_))));
+    assert!(matches!(h.engine.queue_send(mail("")), Err(crate::Error::Invalid(_))));
+    assert_eq!(count(&h.ro, "SELECT count(*) FROM outbox"), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn mail_queued_before_quit_goes_out_on_next_launch() {
+    let g = FakeGmail::new();
+    let h = setup(cfg(), true, g.clone());
+    // First run: no network tasks (as if quit inside the undo window).
+    let offline_run = Engine::start_on(Handle::current(), h.path.clone(), h.rec.clone(), None, cfg());
+    offline_run.queue_send(mail("ann@example.com")).unwrap();
+    drop(offline_run);
+    // `h.engine` (the "next launch") picks it up once it is due.
+    h.engine.inner.outbox_wake.notify_one();
+    until(|| g.st().sent.len() == 1).await;
+    until(|| count(&h.ro, "SELECT count(*) FROM outbox") == 0).await;
+}

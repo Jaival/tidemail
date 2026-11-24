@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod appearance;
+pub mod compose;
 pub mod list;
 pub mod palette;
 pub mod reader;

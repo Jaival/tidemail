@@ -170,7 +170,10 @@ fn main() {
             };
 
             let tray = match tray::install(tx.clone()) {
-                Ok(t) => Some(t),
+                Ok((icon, quit)) => {
+                    quit.set_text(tray::quit_text(state.read(cx).status.pending_sends));
+                    Some((icon, quit))
+                }
                 Err(e) => {
                     eprintln!("tidemail: tray icon unavailable: {e}");
                     None
@@ -180,7 +183,7 @@ fn main() {
             single_instance::listen(pipe, move || show_tx.send(AppEvent::ShowWindow));
 
             cx.spawn(async move |cx| {
-                let _tray = tray;
+                let tray = tray;
                 while let Some(event) = rx.next().await {
                     cx.update(|cx| match event {
                         AppEvent::DataChanged {
@@ -190,6 +193,9 @@ fn main() {
                             state.update(cx, |s, cx| s.on_data_changed(thread_ids, label_keys, cx))
                         }
                         AppEvent::StatusChanged(status) => {
+                            if let Some((_, quit)) = &tray {
+                                quit.set_text(tray::quit_text(status.pending_sends));
+                            }
                             state.update(cx, |s, cx| s.on_status(status, cx))
                         }
                         AppEvent::ShowWindow => {

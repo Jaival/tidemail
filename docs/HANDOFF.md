@@ -354,14 +354,46 @@ Not done yet:
 ## Phase 3 "Compose" design (2026-11-24)
 
 - Grilling done. All decisions: `docs/adr/0004-compose-and-drafts.md`. SPEC points to it.
-- Spell check is in Phase 3 (slice 6), not deferred: Windows `ISpellChecker`, squiggles via `gpui-component` `Editor` diagnostics.
+- Spell check is in Phase 3 (slice 6), not deferred: Windows `ISpellChecker`, squiggles from our own `InputHighlighter` (slice 0 result).
 - Slice 0 (editor spike): **pass** (2026-11-24). Results in ADR 0004 "Slice 0 result". Keystroke to paint p95 ~1.3 ms at 5,000 words. Squiggles come from our own `InputHighlighter`, not editor diagnostics (invisible colour, cleared on edit). IME composition not checked (no IME installed).
-- Next: slice 1 (new message, plain text, send queue, 10 s undo send).
 - Branch `mark-all-read` (Shift+U mark all read, IMMEDIATE transactions) is committed, not pushed or merged.
+
+## Phase 3 slice 1 status (2026-11-24, branch `phase3`, not pushed)
+
+New message, plain text, durable send queue, 10 s "Undo send".
+
+- **Compose** (`features/compose`): `c` (also in Ctrl+K) opens it in the reader pane; full width in Command (replaces list/reader). From (account of the current view, else the first; click cycles when there are several), To, "Cc Bcc" toggle, Subject, body in the prose-mode `Editor` (slice 0 flags; no highlighter yet). Ctrl+Enter sends, Tab / Shift+Tab move between fields; both bound as `TidemailCompose > Input` after `gpui_kit::init`, so they override the input's own newline / indent. Esc closes an empty form; with text it asks "Press Esc again" (3 s). The shell drops single-key bindings while compose has focus (`SEARCH_CONTEXT`). The reader webview hides while composing.
+- **Addresses and RFC 822** (`tidemail_gmail::compose`): `parse_addresses` (commas / semicolons outside quotes and `<>`; error names the bad entry, shown inline), `PlainMessage::to_rfc822` (Date, From = account address + display name, To / Cc / Bcc, RFC 2047 subject and names, UTF-8 base64 body). `GmailClient::send_message` (`messages.send`, 100 units; retries only 401 / rate limits).
+- **Send queue** (`crates/sync/src/outbox.rs`, migration 0008 `outbox`): `Engine::queue_send` stores the sent copy at once (`gmail_id` / thread `local-<outbox id>`, `SENT`, body, FTS) and the raw message; `outbox_loop` sends after `Config::send_delay` (10 s). Offline / auth errors wait 10 s / 60 s without using an attempt ("Queued (offline)"); other errors back off; after 3 attempts the row is failed. On success Gmail's ids replace the local ones (or the local copy goes if sync stored Gmail's first). `cancel_send` (Undo, and Edit after failure) works while `attempts = 0` or failed, deletes the local copy and returns the fields; compose reopens with them. `retry_send`. Full diff skips `local-%` ids.
+- **UI states**: toast "Sending… Undo" stays 10 s (Ctrl+Z works). Reader chip on our message: "Sending…", "Queued (offline)", "Not sent" (`MessageMeta::send_state` from a join on `outbox`). Status line: "Sending N messages", "N messages queued (offline)", "N messages not sent" with Retry / Edit (before failed actions). Tray menu: "Quit (1 message waiting to send)" from `SyncStatus::pending_sends`.
+- **Quit inside the undo window**: the row is in SQLite; the next launch's `outbox_loop` sends it (test `mail_queued_before_quit_goes_out_on_next_launch`).
+- Tests: 6 engine tests (window then Gmail ids, undo, offline then send, fail then retry, bad addresses, next launch), 4 compose builder tests, status text test.
+- Checked by screenshot (bench.db, `.example` accounts, so nothing reached Gmail): compose empty / filled / soft wrap (Tide dark), send toast, Ctrl+Z restores the form, Sent view chip "Sending…" then "Queued (offline)" (no token for the fake account), Esc confirm, Command light with an address error.
+- **Not checked against real Gmail.** Send one message to yourself from the real account before relying on it.
+
+### Bench (bench.db, 2026-11-24, release, second run; all PASS)
+
+| Metric | Tide | Command | Paper | Budget |
+|---|---|---|---|---|
+| cold launch, worst of 3 | 302 ms | 289 ms | 288 ms | 400 ms |
+| j/k open to paint p95 | 10.1 ms | 8.2 ms | 8.3 ms | 50 ms |
+| **open compose to caret paint p95** (new) | 4.1 ms | 1.7 ms | 3.3 ms | 50 ms |
+| scroll dropped / blank | 0 / 1800, 0 | 0 / 1800, 0 | 0 / 1800, 0 | ≤ 2 %, 0 |
+
+First run: Tide's first launch 609 ms (first launch after the build; the other two 278–287 ms), everything else passed. Compose is measured as 20 open/close cycles after the scroll phase (`bench.rs`, `Report::compose_ms`). Keystroke-to-paint in a 5,000-word draft is not in `bench-all` yet (slice 0 spike measures it).
+
+### Open decisions (slice 1)
+
+- Possible duplicate send: a transport error after Gmail received the request (timeout) counts as offline and is retried; a 5xx is retried with backoff. Quit while a send is in flight resends on next launch. Rare; fix needs an idempotency check (e.g. search Sent for our Message-ID before retry). Decide if it matters.
+- Auth errors show as "Queued (offline)" (spec names only offline). The account status already says "Sign-in needed".
+- Gmail not set up (`config.toml` missing) fails the send after 3 attempts instead of waiting.
+- Esc discards (with confirm) because local drafts are slice 3; slice 3 changes Esc to save + close. Failure "goes back to Drafts" is also slice 3; for now the status line has Edit.
+- Ctrl+Enter / Tab are not palette entries (they act on the focused field).
+- Sign-out warning "N drafts and M unsent messages" not done (outbox rows are deleted with the account by cascade).
 
 ## Next
 
-1. Phase 3 slice 1 (see "Phase 3 design" above). Phase 2 leftovers ("Not done yet") stay open.
+1. Phase 3 slice 2: reply, reply all, forward, threading headers (`In-Reply-To`, `References`, `threadId` — `messages_send` already takes `thread_id`; `confirm` already moves the copy into an existing thread). Phase 2 leftovers ("Not done yet") stay open.
 2. Open from 1G-U3b:
    - `plainTextMono` defaults to on (the plan listed the interface font for plain-text mail). On, because plain-text mail is where keys and logs arrive and masking only works in the code font. Flip the default if plain-text letters read worse in mono.
    - Raw headers (the plan's other code-font use) do not exist yet; use the code font when they do.
