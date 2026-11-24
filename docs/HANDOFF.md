@@ -237,7 +237,7 @@ Then Phase 2 as before.
   - The OAuth app is in Testing mode: refresh tokens expire after 7 days. "In production" needs a homepage and a privacy policy URL on the consent screen. Decide before daily use.
   - The per-minute quota makes a 66k mailbox take hours. Accepted for now (background + notice).
   - 3 messages have `internal_date = 0` on the real DB. They sort last. Cause not checked.
-- Phase 3 compose/editor and offline draft behavior remain intentionally undecided.
+- Phase 3 compose/editor and offline draft behavior: decided 2026-11-24, see `docs/adr/0004-compose-and-drafts.md`.
 - Phase 4 projects/classification remain intentionally undesigned.
 - From 1G-U2:
   - Ctrl+Z while the search input has focus is the input's undo, not the toast's undo. Keep, or bind `Undo` in `TidemailSearch`?
@@ -351,9 +351,16 @@ Not done yet:
 - Re-sanitize: only testable by raising the sanitizer version, which re-fetches every stored body; skipped while the first sync runs.
 - Enter in the search box right after typing can arrive before the results; it then opens nothing (a second Enter works). Open the first hit when the results land, if it matters.
 
+## Phase 3 "Compose" design (2026-11-24)
+
+- Grilling done. All decisions: `docs/adr/0004-compose-and-drafts.md`. SPEC points to it.
+- Spell check is in Phase 3 (slice 6), not deferred: Windows `ISpellChecker`, squiggles via `gpui-component` `Editor` diagnostics.
+- Next: slice 0 (editor spike, pass/fail in ADR 0004) in a new thread on branch `phase3`, then slice 1 (new message, plain text, send queue, 10 s undo send).
+- Branch `mark-all-read` (Shift+U mark all read, IMMEDIATE transactions) is committed, not pushed or merged.
+
 ## Next
 
-1. Finish Phase 2 (see "Not done yet" above).
+1. Phase 3 slice 0, the editor spike (see "Phase 3 design" above). Phase 2 leftovers ("Not done yet") stay open.
 2. Open from 1G-U3b:
    - `plainTextMono` defaults to on (the plan listed the interface font for plain-text mail). On, because plain-text mail is where keys and logs arrive and masking only works in the code font. Flip the default if plain-text letters read worse in mono.
    - Raw headers (the plan's other code-font use) do not exist yet; use the code font when they do.

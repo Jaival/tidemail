@@ -60,7 +60,7 @@ Both the app and `bench` take `--db <path>`. The fake mailbox lives in `bench.db
 5. **Search:** FTS5 over sender, recipients, subject and body. Operators: `from:`, `to:`, `has:attachment`, `label:`, `is:unread`, `before:`, `after:`. Results update per keystroke. Results are **threads**, each showing the best-matching message snippet with highlights. Sort by date desc. Free text starts at 2 characters; operator-only queries run at once.
 6. **Keyboard first:** `j/k` next/prev, `Enter` open, `e` archive, `#` trash, `s` star, `l` label, `u` mark unread, `/` search, `Ctrl+K` command palette, `g i` go to inbox. Show shortcuts in the palette.
 7. **Theme:** dark + light for every preset (own palettes, not the `gpui-component` defaults). Follow the Windows setting; manual override in the Ctrl+K palette. The mail body is always on a light surface.
-8. **Compose / reply / forward (Phase 3):** plain text + simple rich text, sent through `messages.send` (raw RFC 822). Drafts saved locally first. Detailed design (editor choice, Gmail drafts sync, offline send queue) is decided in a separate grilling session at the start of Phase 3.
+8. **Compose / reply / forward (Phase 3):** plain text + simple rich text, sent through `messages.send` (raw RFC 822). Drafts saved locally first. Detailed design: `docs/adr/0004-compose-and-drafts.md`.
 9. **Later phase (Phase 4):** projects (user-defined groups of threads) and automatic classification. Not designed yet; grilled at the start of Phase 4.
 
 **Tray:** the app keeps running in the system tray.
@@ -141,7 +141,7 @@ Rules for Phase 1G-B:
 
 **Phase 2 – Connect:** replace the fake mailbox with real accounts, run `bench` against both `bench.db` and the real DB, fix every missed budget.
 
-**Phase 3 – Compose, reply, drafts.** Starts with its own grilling session.
+**Phase 3 – Compose, reply, drafts.** Design decided 2026-11-24: `docs/adr/0004-compose-and-drafts.md` (editor, drafts sync, send queue, spell check, build slices).
 
 **Phase 4 – Projects and classification.** Starts with its own grilling session.
 
